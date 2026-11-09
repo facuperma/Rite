@@ -149,6 +149,12 @@ fun PantallaLista(vm: RiteViewModel) {
                             onClick = { ir(Filtro(papelera = true)) },
                             modifier = Modifier.padding(horizontal = 12.dp),
                         )
+                        NavigationDrawerItem(
+                            label = { Text("Ajustes y PC vinculada") },
+                            selected = false,
+                            onClick = { vm.ajustesAbiertos.value = true; alcance.launch { drawer.close() } },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
                     }
                 }
             }

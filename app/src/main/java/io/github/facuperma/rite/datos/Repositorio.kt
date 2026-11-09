@@ -114,6 +114,13 @@ class Repositorio(
     suspend fun guardarVersion(notaId: Long, origen: String, texto: String, metaJson: String = "{}"): Long =
         base.versiones().insertar(Version(notaId = notaId, origen = origen, texto = texto, creada = reloj(), metaJson = metaJson))
 
+    /** Como guardarVersion, pero no repite la ultima si es del mismo origen y texto (devuelve null). */
+    suspend fun registrarVersion(notaId: Long, origen: String, texto: String, metaJson: String = "{}"): Long? {
+        val ultima = base.versiones().ultima(notaId)
+        if (ultima != null && ultima.origen == origen && ultima.texto == texto) return null
+        return guardarVersion(notaId, origen, texto, metaJson)
+    }
+
     // ---- Ajustes ----
     suspend fun ajuste(clave: String, porDefecto: String): String = base.ajustes().leer(clave) ?: porDefecto
     suspend fun guardarAjuste(clave: String, valor: String) = base.ajustes().guardar(Ajuste(clave, valor))

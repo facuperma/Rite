@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,7 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +58,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.facuperma.rite.datos.Nota
+import io.github.facuperma.rite.datos.Version
+import io.github.facuperma.rite.red.separarTitulo
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val SIN_MARCAR = "☐ "
 private const val MARCADO = "☑ "
@@ -85,6 +93,21 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
     val carpetas by vm.carpetas.collectAsState()
     var menuCarpeta by remember { mutableStateOf(false) }
     var etiquetaNueva by remember { mutableStateOf("") }
+
+    var estadoMateo by remember { mutableStateOf<EstadoMateo?>(null) }
+    var verVersiones by remember { mutableStateOf(false) }
+    val alcance = rememberCoroutineScope()
+    val versiones by vm.versiones(id).collectAsState(initial = emptyList())
+
+    /** Reemplaza título y cuerpo por el texto dado; lo que había queda guardado como versión. */
+    fun aplicar(texto: String) {
+        alcance.launch {
+            vm.guardarSnapshot(id, titulo, cuerpo.text)
+            val (t, c) = separarTitulo(texto)
+            titulo = t
+            cuerpo = TextFieldValue(c, TextRange(c.length))
+        }
+    }
 
     LaunchedEffect(id) {
         vm.cargar(id)?.let {
@@ -121,6 +144,18 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                 navigationIcon = { IconButton(onClick = { salir() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver") } },
                 actions = {
                     if (actual != null) {
+                        TextButton(onClick = {
+                            estadoMateo = EstadoMateo.Cargando
+                            alcance.launch {
+                                estadoMateo = vm.organizarConMateo(id, titulo, cuerpo.text).fold(
+                                    onSuccess = { EstadoMateo.Listo(it) },
+                                    onFailure = { EstadoMateo.Error(it.message ?: "Error desconocido") },
+                                )
+                            }
+                        }) { Text("Mateo") }
+                        if (versiones.isNotEmpty()) {
+                            TextButton(onClick = { verVersiones = true }) { Text("Versiones (${versiones.size})") }
+                        }
                         IconButton(onClick = {
                             vm.fijar(id, !actual.fijada)
                             nota = actual.copy(fijada = !actual.fijada)
@@ -216,6 +251,64 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
             )
         }
     }
+
+    when (val e = estadoMateo) {
+        null -> {}
+        EstadoMateo.Cargando -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Mateo está trabajando…") },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(28.dp)); Text("  La primera vez puede tardar un minuto.") } },
+            confirmButton = {},
+        )
+        is EstadoMateo.Error -> AlertDialog(
+            onDismissRequest = { estadoMateo = null },
+            title = { Text("No se pudo") },
+            text = { Text(e.msg) },
+            confirmButton = { TextButton(onClick = { estadoMateo = null }) { Text("Cerrar") } },
+        )
+        is EstadoMateo.Listo -> AlertDialog(
+            onDismissRequest = { estadoMateo = null },
+            title = { Text("Versión de Mateo") },
+            text = {
+                Column {
+                    Text("Se guardó como versión; tu nota sigue igual hasta que la uses.", style = MaterialTheme.typography.bodySmall)
+                    Column(Modifier.padding(top = 8.dp).heightIn(max = 360.dp).verticalScroll(rememberScrollState())) { Text(e.texto) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { aplicar(e.texto); estadoMateo = null }) { Text("Usar en la nota") } },
+            dismissButton = { TextButton(onClick = { estadoMateo = null }) { Text("Dejar como versión") } },
+        )
+    }
+
+    if (verVersiones) {
+        AlertDialog(
+            onDismissRequest = { verVersiones = false },
+            title = { Text("Versiones") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(versiones, key = { it.id }) { v ->
+                        Column(Modifier.padding(vertical = 6.dp)) {
+                            val quien = when (v.origen) {
+                                Version.MATEO -> "Mateo"
+                                Version.CLAUDE -> "Claude"
+                                else -> "Tuya"
+                            }
+                            Text(quien, style = MaterialTheme.typography.labelLarge)
+                            Text(v.texto, maxLines = 4, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { aplicar(v.texto); verVersiones = false }) { Text("Restaurar") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { verVersiones = false }) { Text("Cerrar") } },
+        )
+    }
+}
+
+sealed interface EstadoMateo {
+    data object Cargando : EstadoMateo
+    data class Listo(val texto: String) : EstadoMateo
+    data class Error(val msg: String) : EstadoMateo
 }
 
 @Composable

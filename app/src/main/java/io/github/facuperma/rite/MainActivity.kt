@@ -10,6 +10,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.facuperma.rite.ui.PantallaAjustes
 import io.github.facuperma.rite.ui.PantallaEditor
 import io.github.facuperma.rite.ui.PantallaLista
 import io.github.facuperma.rite.ui.RiteViewModel
@@ -22,8 +23,13 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF3B5BDB), surface = Color(0xFFFAFAFC), background = Color(0xFFFAFAFC))) {
                 val vm: RiteViewModel = viewModel()
                 val editando by vm.editando.collectAsState()
+                val ajustes by vm.ajustesAbiertos.collectAsState()
                 val id = editando
-                if (id == null) PantallaLista(vm) else PantallaEditor(vm, id)
+                when {
+                    id != null -> PantallaEditor(vm, id)
+                    ajustes -> PantallaAjustes(vm)
+                    else -> PantallaLista(vm)
+                }
             }
         }
     }

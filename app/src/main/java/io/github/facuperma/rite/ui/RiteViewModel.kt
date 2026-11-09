@@ -8,6 +8,13 @@ import io.github.facuperma.rite.datos.Carpeta
 import io.github.facuperma.rite.datos.Etiqueta
 import io.github.facuperma.rite.datos.Nota
 import io.github.facuperma.rite.datos.Repositorio
+import io.github.facuperma.rite.datos.Version
+import io.github.facuperma.rite.red.Almacen
+import io.github.facuperma.rite.red.Cliente
+import io.github.facuperma.rite.red.Enlace
+import io.github.facuperma.rite.red.ErrorPuente
+import io.github.facuperma.rite.red.EstadoPuente
+import io.github.facuperma.rite.red.Vinculo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +52,57 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
 
     val etiquetas: StateFlow<List<Etiqueta>> =
         repo.etiquetas().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ---- Vinculación con la PC (puente) ----
+    private val almacen = Almacen(app)
+    val vinculo = MutableStateFlow(almacen.leer())
+    val ajustesAbiertos = MutableStateFlow(false)
+
+    /** Vincula con el enlace que imprime el puente. Devuelve el mensaje de error, o null si salió bien. */
+    suspend fun vincular(textoEnlace: String): String? {
+        val e = Enlace.leer(textoEnlace) ?: return "El enlace no es válido. Tiene que empezar con rite:// y salir del puente."
+        return try {
+            val sin = Vinculo(e.host, e.puerto, e.huella, null)
+            val token = Cliente(sin).vincular(e.codigo, android.os.Build.MODEL ?: "Celular")
+            val v = sin.copy(token = token)
+            almacen.guardar(v)
+            vinculo.value = v
+            null
+        } catch (ex: ErrorPuente) {
+            ex.message
+        }
+    }
+
+    fun desvincular() {
+        almacen.borrar()
+        vinculo.value = null
+    }
+
+    suspend fun estadoPuente(): Result<EstadoPuente> = runCatching {
+        Cliente(vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Sin PC vinculada")).estado()
+    }.recoverCatching { throw ErrorPuente(it.message ?: "Error") }
+
+    /**
+     * Manda la nota a Mateo. Guarda el texto actual como versión «usuario» y la respuesta como versión «mateo»;
+     * la nota no se modifica.
+     */
+    suspend fun organizarConMateo(id: Long, titulo: String, cuerpo: String): Result<String> = runCatching {
+        val v = vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Primero vinculá la PC en Ajustes")
+        val texto = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+        if (texto.isEmpty()) throw ErrorPuente("La nota está vacía")
+        repo.registrarVersion(id, Version.USUARIO, texto)
+        val salida = Cliente(v).organizar(texto)
+        repo.registrarVersion(id, Version.MATEO, salida)
+        salida
+    }
+
+    fun versiones(id: Long): Flow<List<Version>> = repo.versiones(id)
+
+    /** Antes de reemplazar el contenido por una versión, el texto actual queda guardado. */
+    suspend fun guardarSnapshot(id: Long, titulo: String, cuerpo: String) {
+        val texto = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+        if (texto.isNotEmpty()) repo.registrarVersion(id, Version.USUARIO, texto)
+    }
 
     init {
         viewModelScope.launch { repo.limpiarPapeleraVieja() }

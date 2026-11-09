@@ -166,4 +166,16 @@ class RepositorioTest {
         repo.guardarAjuste("resumen_cada", "15")
         assertEquals("15", repo.ajuste("resumen_cada", "10"))
     }
+
+    @Test
+    fun registrar_version_no_repite_la_ultima_igual() = runBlocking {
+        val id = repo.crearNota(titulo = "n")
+        assertNotNull(repo.registrarVersion(id, Version.USUARIO, "texto"))
+        assertNull(repo.registrarVersion(id, Version.USUARIO, "texto"))
+        ahora += 1
+        assertNotNull(repo.registrarVersion(id, Version.MATEO, "texto"))
+        ahora += 1
+        assertNotNull(repo.registrarVersion(id, Version.USUARIO, "texto"))
+        assertEquals(3, repo.versiones(id).first().size)
+    }
 }
