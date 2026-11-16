@@ -9,17 +9,31 @@ data class ResultadoPrompt(
     val caracteresAntes: Int,
     val caracteresDespues: Int,
     val advertencias: List<String>,
+    val resumenIteracion: String = "",
+    val preguntasDelOriginal: List<String> = emptyList(),
+    val preguntasSugeridas: List<String> = emptyList(),
 )
 
+/** Respuesta de POST /mateo/organizar: un solo texto (el mejor de los candidatos internos). */
+data class RespuestaOrganizar(val texto: String, val resumenIteracion: String)
+
+private fun lista(o: JSONObject, clave: String): List<String> {
+    val a = o.optJSONArray(clave) ?: return emptyList()
+    return (0 until a.length()).map { a.getString(it) }
+}
+
+fun parsearOrganizar(o: JSONObject) = RespuestaOrganizar(o.getString("texto"), o.optString("resumen_iteracion"))
+
 fun parsearPrompt(o: JSONObject): ResultadoPrompt {
-    val adv = o.optJSONArray("advertencias")
-    val lista = if (adv == null) emptyList() else (0 until adv.length()).map { adv.getString(it) }
     return ResultadoPrompt(
         prompt = o.getString("prompt"),
         modelo = o.optString("modelo"),
         caracteresAntes = o.optInt("caracteres_antes"),
         caracteresDespues = o.optInt("caracteres_despues"),
-        advertencias = lista,
+        advertencias = lista(o, "advertencias"),
+        resumenIteracion = o.optString("resumen_iteracion"),
+        preguntasDelOriginal = lista(o, "preguntas_del_original"),
+        preguntasSugeridas = lista(o, "preguntas_sugeridas"),
     )
 }
 

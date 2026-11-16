@@ -107,6 +107,9 @@ interface VersionDao {
     @Query("SELECT * FROM version WHERE notaId = :notaId ORDER BY creada DESC, id DESC LIMIT 1")
     suspend fun ultima(notaId: Long): Version?
 
+    @Query("SELECT COUNT(*) FROM version WHERE notaId = :notaId AND origen = :origen AND texto = :texto")
+    suspend fun contar(notaId: Long, origen: String, texto: String): Int
+
     @Insert
     suspend fun insertar(version: Version): Long
 }

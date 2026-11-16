@@ -60,6 +60,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.facuperma.rite.datos.Nota
 import io.github.facuperma.rite.datos.Version
+import io.github.facuperma.rite.red.RespuestaOrganizar
 import io.github.facuperma.rite.red.ResultadoPrompt
 import io.github.facuperma.rite.red.esVersionPrompt
 import io.github.facuperma.rite.red.separarTitulo
@@ -117,6 +118,30 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
         }
     }
 
+    var pistaMateo by remember { mutableStateOf("") }
+    var pistaPrompt by remember { mutableStateOf("") }
+
+    /** Un solo resultado a la vez: «Rehacer» reemplaza el que se muestra; nada se guarda solo. */
+    fun pedirMateo(pista: String) {
+        estadoMateo = EstadoMateo.Cargando
+        alcance.launch {
+            estadoMateo = vm.organizarConMateo(titulo, cuerpo.text, pista).fold(
+                onSuccess = { EstadoMateo.Listo(it) },
+                onFailure = { EstadoMateo.Error(it.message ?: "Error desconocido") },
+            )
+        }
+    }
+
+    fun pedirPrompt(pista: String) {
+        estadoPrompt = EstadoPrompt.Cargando
+        alcance.launch {
+            estadoPrompt = vm.armarPromptClaude(titulo, cuerpo.text, pista).fold(
+                onSuccess = { EstadoPrompt.Listo(it) },
+                onFailure = { EstadoPrompt.Error(it.message ?: "Error desconocido") },
+            )
+        }
+    }
+
     LaunchedEffect(id) {
         vm.cargar(id)?.let {
             nota = it
@@ -152,24 +177,8 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                 navigationIcon = { IconButton(onClick = { salir() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver") } },
                 actions = {
                     if (actual != null) {
-                        TextButton(onClick = {
-                            estadoMateo = EstadoMateo.Cargando
-                            alcance.launch {
-                                estadoMateo = vm.organizarConMateo(id, titulo, cuerpo.text).fold(
-                                    onSuccess = { EstadoMateo.Listo(it) },
-                                    onFailure = { EstadoMateo.Error(it.message ?: "Error desconocido") },
-                                )
-                            }
-                        }) { Text("Mateo") }
-                        TextButton(onClick = {
-                            estadoPrompt = EstadoPrompt.Cargando
-                            alcance.launch {
-                                estadoPrompt = vm.armarPromptClaude(id, titulo, cuerpo.text).fold(
-                                    onSuccess = { EstadoPrompt.Listo(it) },
-                                    onFailure = { EstadoPrompt.Error(it.message ?: "Error desconocido") },
-                                )
-                            }
-                        }) { Text("Prompt para Claude") }
+                        TextButton(onClick = { pistaMateo = ""; pedirMateo("") }) { Text("Mateo") }
+                        TextButton(onClick = { pistaPrompt = ""; pedirPrompt("") }) { Text("Prompt para Claude") }
                         if (versiones.isNotEmpty()) {
                             TextButton(onClick = { verVersiones = true }) { Text("Versiones (${versiones.size})") }
                         }
@@ -287,13 +296,24 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
             onDismissRequest = { estadoMateo = null },
             title = { Text("Versión de Mateo") },
             text = {
-                Column {
-                    Text("Se guardó como versión; tu nota sigue igual hasta que la uses.", style = MaterialTheme.typography.bodySmall)
-                    Column(Modifier.padding(top = 8.dp).heightIn(max = 360.dp).verticalScroll(rememberScrollState())) { Text(e.texto) }
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                    if (e.resultado.resumenIteracion.isNotBlank()) {
+                        Text(e.resultado.resumenIteracion, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Nada se guardó todavía; tu nota sigue igual.", style = MaterialTheme.typography.bodySmall)
+                    Text(e.resultado.texto, modifier = Modifier.padding(top = 8.dp))
+                    RehacerFila(pistaMateo, { pistaMateo = it }) { pedirMateo(pistaMateo) }
                 }
             },
-            confirmButton = { TextButton(onClick = { aplicar(e.texto); estadoMateo = null }) { Text("Usar en la nota") } },
-            dismissButton = { TextButton(onClick = { estadoMateo = null }) { Text("Dejar como versión") } },
+            confirmButton = {
+                TextButton(onClick = { alcance.launch { vm.guardarMateo(id, e.resultado.texto) }; aplicar(e.resultado.texto); estadoMateo = null }) { Text("Usar en la nota") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { alcance.launch { vm.guardarMateo(id, e.resultado.texto) }; estadoMateo = null }) { Text("Guardar versión") }
+                    TextButton(onClick = { estadoMateo = null }) { Text("Cerrar") }
+                }
+            },
         )
     }
 
@@ -313,24 +333,52 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
         )
         is EstadoPrompt.Listo -> {
             var editado by remember(p) { mutableStateOf(p.resultado.prompt) }
+            var elegida by remember(p) { mutableStateOf<String?>(null) }
             AlertDialog(
                 onDismissRequest = { estadoPrompt = null },
                 title = { Text("Prompt para Claude Code") },
                 text = {
-                    Column {
+                    Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
                         Text(
                             textoEstimacion(p.resultado.caracteresAntes, editado.length),
                             style = MaterialTheme.typography.labelLarge,
                         )
-                        Text("No se envió nada a Claude. Podés editarlo antes de copiarlo.", style = MaterialTheme.typography.bodySmall)
+                        if (p.resultado.resumenIteracion.isNotBlank()) {
+                            Text(p.resultado.resumenIteracion, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("No se envió nada a Claude ni se guardó nada. Podés editarlo antes de copiarlo.", style = MaterialTheme.typography.bodySmall)
                         p.resultado.advertencias.forEach {
                             Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
                         }
                         OutlinedTextField(
                             value = editado,
                             onValueChange = { editado = it },
-                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 160.dp, max = 340.dp),
+                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 140.dp, max = 300.dp),
                         )
+                        if (p.resultado.preguntasSugeridas.isNotEmpty()) {
+                            Text(
+                                "Preguntas de Mateo (ideas, no entran en el prompt)",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            p.resultado.preguntasSugeridas.forEach { q ->
+                                Text(
+                                    (if (elegida == q) "▸ " else "• ") + q,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.fillMaxWidth().clickable { elegida = if (elegida == q) null else q }.padding(vertical = 4.dp),
+                                )
+                                if (elegida == q) {
+                                    Row {
+                                        TextButton(onClick = {
+                                            cuerpo = agregarPregunta(cuerpo, q)
+                                            elegida = null
+                                        }) { Text("Agregar a la nota") }
+                                        TextButton(onClick = { portapapeles.setText(AnnotatedString(q)); elegida = null }) { Text("Copiar") }
+                                    }
+                                }
+                            }
+                        }
+                        RehacerFila(pistaPrompt, { pistaPrompt = it }) { pedirPrompt(pistaPrompt) }
                     }
                 },
                 confirmButton = {
@@ -375,9 +423,30 @@ sealed interface EstadoPrompt {
     data class Error(val msg: String) : EstadoPrompt
 }
 
+/** Agrega una pregunta al final de la nota (una línea nueva). */
+fun agregarPregunta(v: TextFieldValue, pregunta: String): TextFieldValue {
+    val base = v.text.trimEnd()
+    val nuevo = if (base.isEmpty()) pregunta else base + "\n" + pregunta
+    return TextFieldValue(nuevo, TextRange(nuevo.length))
+}
+
+@Composable
+private fun RehacerFila(pista: String, alCambiar: (String) -> Unit, rehacer: () -> Unit) {
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = pista,
+            onValueChange = alCambiar,
+            placeholder = { Text("Pista (opcional)") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = rehacer) { Text("Rehacer") }
+    }
+}
+
 sealed interface EstadoMateo {
     data object Cargando : EstadoMateo
-    data class Listo(val texto: String) : EstadoMateo
+    data class Listo(val resultado: RespuestaOrganizar) : EstadoMateo
     data class Error(val msg: String) : EstadoMateo
 }
 

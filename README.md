@@ -25,5 +25,15 @@ powershell -File servidor\servicio\quitar_autoinicio.ps1     # lo quita
 ```
 Registro en `%LOCALAPPDATA%\Rite\puente.log` (sin codigos de vinculacion; el arranque automatico usa `--sin-codigo`). Para vincular un celular nuevo: `python -m rite_puente vincular --direccion <IP>`. Hay que tener Tailscale y Ollama arrancados para usar Rite fuera de casa y con Mateo.
 
+### Prompt para Claude y organizar (módulos reutilizables)
+`POST /mateo/prompt {texto, pista?}` y `POST /mateo/organizar {texto, pista?}`: el servidor itera internamente (hasta 3 candidatos, con feedback) y devuelve **solo el mejor** más `resumen_iteracion`. Nada se guarda solo: la app guarda una versión únicamente con «Guardar versión» / «Usar en la nota»; «Rehacer» (con pista opcional) reemplaza el resultado mostrado.
+El prompt nunca es más largo que el original (si no se puede achicar, vuelve el original compactado). Las dudas del texto salen tal cual en `preguntas_del_original`; Mateo suma hasta 3 `preguntas_sugeridas`, fuera del prompt y del conteo de largo.
+
+Módulos puros (solo biblioteca estándar, sin HTTP ni la app; se pueden copiar o importar desde Ideario):
+- `rite_puente/fidelidad.py`: `literales(texto)`, `faltantes(original, prompt)`, `invenciones(original, prompt)`, `separar_dudas(texto)`, `compactar(texto)`.
+- `rite_puente/puntuacion.py`: `puntuar(original, candidato, limite)` → `Puntaje` (`pasa`, `pistas()`), `elegir(puntajes)`, `resumen(...)`.
+- `rite_puente/armador.py`: `armar(original, llamar, modelo, pista, k, sugerir)` y `organizar(...)`; reciben `llamar(mensajes, opciones) -> str`, así que sirven con cualquier modelo.
+Banco de pruebas con Ollama real: `python servidor/tests/banco_prompts.py --repeticiones 3 [--modelo qwen3:14b] [--ver]`. Tests: `python -m unittest discover -s servidor/tests`. Modelo del prompt: `servir --modelo-prompt MODELO`.
+
 ## App
 `gradlew.bat assembleDebug` y `gradlew.bat testDebugUnitTest` (en esta PC con `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:/gtvtmp`). En la app: menu → Ajustes y PC vinculada → pegar el enlace.

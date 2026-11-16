@@ -15,6 +15,7 @@ import io.github.facuperma.rite.red.Enlace
 import io.github.facuperma.rite.red.ErrorPuente
 import io.github.facuperma.rite.red.EstadoPuente
 import io.github.facuperma.rite.red.META_PROMPT
+import io.github.facuperma.rite.red.RespuestaOrganizar
 import io.github.facuperma.rite.red.ResultadoPrompt
 import io.github.facuperma.rite.red.Vinculo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -84,27 +85,30 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
         Cliente(vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Sin PC vinculada")).estado()
     }.recoverCatching { throw ErrorPuente(it.message ?: "Error") }
 
-    /**
-     * Manda la nota a Mateo. Guarda el texto actual como versión «usuario» y la respuesta como versión «mateo»;
-     * la nota no se modifica.
-     */
-    suspend fun organizarConMateo(id: Long, titulo: String, cuerpo: String): Result<String> = runCatching {
-        val v = vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Primero vinculá la PC en Ajustes")
-        val texto = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+    private fun textoDe(titulo: String, cuerpo: String) = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+
+    private fun vinculoActivo(): Vinculo =
+        vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Primero vinculá la PC en Ajustes")
+
+    /** Pide UNA versión organizada (el servidor itera internamente). No guarda nada: eso lo decide el usuario. */
+    suspend fun organizarConMateo(titulo: String, cuerpo: String, pista: String = ""): Result<RespuestaOrganizar> = runCatching {
+        val v = vinculoActivo()
+        val texto = textoDe(titulo, cuerpo)
         if (texto.isEmpty()) throw ErrorPuente("La nota está vacía")
-        repo.registrarVersion(id, Version.USUARIO, texto)
-        val salida = Cliente(v).organizar(texto)
-        repo.registrarVersion(id, Version.MATEO, salida)
-        salida
+        Cliente(v).organizar(texto, pista)
     }
 
-    /** Pide a Mateo un prompt compacto para Claude Code. No se envía a Claude; el original se guarda como versión. */
-    suspend fun armarPromptClaude(id: Long, titulo: String, cuerpo: String): Result<ResultadoPrompt> = runCatching {
-        val v = vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Primero vinculá la PC en Ajustes")
-        val texto = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+    /** Pide UN prompt compacto para Claude Code. No se guarda ni se envía a Claude. */
+    suspend fun armarPromptClaude(titulo: String, cuerpo: String, pista: String = ""): Result<ResultadoPrompt> = runCatching {
+        val v = vinculoActivo()
+        val texto = textoDe(titulo, cuerpo)
         if (texto.isEmpty()) throw ErrorPuente("La nota está vacía")
-        repo.registrarVersion(id, Version.USUARIO, texto)
-        Cliente(v).armarPrompt(texto)
+        Cliente(v).armarPrompt(texto, pista)
+    }
+
+    /** Guarda la respuesta de Mateo como versión, solo cuando el usuario lo pide (sin duplicados). */
+    suspend fun guardarMateo(id: Long, texto: String) {
+        if (texto.isNotBlank()) repo.registrarVersion(id, Version.MATEO, texto.trim())
     }
 
     suspend fun guardarPrompt(id: Long, texto: String) {

@@ -84,11 +84,11 @@ class Cliente(private val v: Vinculo) {
         return EstadoPuente(o.optBoolean("mateo"), o.optString("modelo"))
     }
 
-    suspend fun organizar(texto: String): String =
-        llamar("/mateo/organizar", JSONObject().put("texto", texto), v.token).getString("texto")
+    suspend fun organizar(texto: String, pista: String = ""): RespuestaOrganizar =
+        parsearOrganizar(llamar("/mateo/organizar", JSONObject().put("texto", texto).put("pista", pista), v.token))
 
-    suspend fun armarPrompt(texto: String): ResultadoPrompt =
-        parsearPrompt(llamar("/mateo/prompt", JSONObject().put("texto", texto), v.token))
+    suspend fun armarPrompt(texto: String, pista: String = ""): ResultadoPrompt =
+        parsearPrompt(llamar("/mateo/prompt", JSONObject().put("texto", texto).put("pista", pista), v.token))
 }
 
 /** Guarda a qué PC está vinculada la app. El token queda en el almacenamiento privado de la app (sin backup). */

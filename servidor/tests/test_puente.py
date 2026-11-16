@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rite_puente import certificado
 from rite_puente.config import Proyectos, carpeta_datos
-from rite_puente import fidelidad
-from rite_puente.mateo import Mateo, MateoError, controlar_prompt
+from rite_puente import armador, fidelidad, puntuacion
+from rite_puente.mateo import Mateo, MateoError
 from rite_puente.servidor import Puente, ip_permitida
 from rite_puente.vinculos import MAX_INTENTOS, VIGENCIA_CODIGO, Vinculos
 
@@ -28,18 +28,18 @@ class MateoFalso:
     def disponible(self):
         return True
 
-    def organizar(self, texto):
+    def organizar(self, texto, pista=""):
         if texto == "falla":
             raise MateoError("Mateo no responde")
         self.recibido.append(texto)
-        return "# Titulo\n- " + texto.strip()
+        return {"texto": "# Titulo\n- " + texto.strip(), "modelo": self.modelo, "resumen_iteracion": "1 version"}
 
     salida_prompt = "Objetivo: x"
 
-    def armar_prompt(self, texto):
+    def armar_prompt(self, texto, pista=""):
         if texto == "falla":
             raise MateoError("Mateo no responde")
-        return controlar_prompt(texto.strip(), self.salida_prompt, self.modelo)
+        return {"prompt": self.salida_prompt, "modelo": self.modelo, "caracteres_antes": len(texto.strip()), "caracteres_despues": len(self.salida_prompt), "advertencias": [], "intentos": 1, "resumen_iteracion": "r", "preguntas_del_original": [], "preguntas_sugeridas": ["¿Y si falla?"], "pista": pista}
 
 
 def pedir(base, ruta, cuerpo=None, token=None, ctx=None):
@@ -77,23 +77,212 @@ class FidelidadTest(unittest.TestCase):
         self.assertIn("caracteres_antes", f)
         self.assertNotIn("8000", f)
 
-    def test_controlar_avisa_faltantes(self):
-        r = controlar_prompt(ORIGINAL, "Objetivo: boton nuevo; 8000", "m")
-        self.assertEqual(r["prompt"], "Objetivo: boton nuevo; 8000")
-        self.assertTrue(r["advertencias"])
-        self.assertIn("ui/Editor.kt", r["advertencias"][0])
-        self.assertEqual(r["caracteres_antes"], len(ORIGINAL))
+
+
+def mateo_guionado(*salidas):
+    """Mateo con respuestas preparadas; guarda los mensajes que recibe."""
+    class M(Mateo):
+        def __init__(self):
+            super().__init__()
+            self.pedidos = []
+            self._s = list(salidas)
+
+        def _sugerir(self, texto, modelo):
+            return "- ¿Que pasa si el CSV queda vacio?\n1. ¿Conviene separar por comas?\nno es pregunta\n¿Y con mas de 500 filas?\n¿Una cuarta pregunta?"
+
+        def _llamar(self, mensajes, modelo, opciones):
+            self.pedidos.append((mensajes, opciones))
+            return self._s.pop(0) if len(self._s) > 1 else self._s[0]
+
+    return M()
+
+
+NOTA = (
+    "Che, necesito que el boton de exportar en `ui/Lista.kt` baje un CSV con las notas, usando `ExportadorCsv`, "
+    "con maximo 500 filas, guardando en la carpeta Descargas del celular. Hoy no hace nada y ya me canse de esperar. "
+    "No quiero librerias nuevas. No se si conviene separar por comas o por punto y coma. Gracias, saludos!"
+)
+
+
+class ArmadorTest(unittest.TestCase):
+    def test_largo_nunca_supera_al_original_aunque_el_modelo_se_pase(self):
+        m = mateo_guionado("Objetivo: " + "relleno " * 200)
+        r = m.armar_prompt(NOTA)
+        self.assertLessEqual(r["caracteres_despues"], r["caracteres_antes"])
         self.assertEqual(r["caracteres_despues"], len(r["prompt"]))
+        self.assertEqual(len(m.pedidos), 3)  # reintento hasta 3 veces
+        self.assertEqual(r["intentos"], 3)
+        self.assertEqual(fidelidad.faltantes(NOTA, r["prompt"]), [])
 
-    def test_sin_advertencias_si_conserva_todo(self):
-        p = "Obj: ui/Editor.kt, /mateo/prompt, caracteres_antes, 8000, 1,5, servidor/rite_puente/mateo.py"
-        self.assertEqual(controlar_prompt(ORIGINAL, p, "m")["advertencias"], [])
+    def test_buen_resultado_se_usa_con_dudas_tal_cual_y_sin_advertencia(self):
+        buena = "Objetivo: boton exportar de `ui/Lista.kt` baja CSV.\nRequisitos:\n- usar `ExportadorCsv`\n- max 500 filas\n- Descargas"
+        m = mateo_guionado(buena)
+        r = m.armar_prompt(NOTA)
+        self.assertEqual(r["intentos"], 1)
+        self.assertEqual(r["advertencias"], [])
+        self.assertIn("Preguntas abiertas:\n- No se si conviene separar por comas o por punto y coma.", r["prompt"])
+        self.assertLess(r["caracteres_despues"], 0.8 * r["caracteres_antes"])
+        # el modelo no recibe las dudas, para que no las reescriba
+        self.assertNotIn("punto y coma", m.pedidos[0][0][-1]["content"])
 
-    def test_mas_largo_devuelve_original_compactado(self):
-        orig = "hacer   algo\n\n\n\ncon `x_y`"
-        r = controlar_prompt(orig, "un texto muchisimo mas largo que el original, con `x_y` y relleno", "m")
-        self.assertEqual(r["prompt"], "hacer algo" + chr(10) * 2 + "con `x_y`")
-        self.assertEqual(len(r["advertencias"]), 1)
+    def test_sin_dudas_en_el_original_no_hay_seccion_aunque_el_modelo_la_invente(self):
+        nota = "Agregar boton de compartir en `ui/Editor.kt` con el intent ACTION_SEND, usando el texto de la nota actual, sin librerias nuevas ni cambios de diseño."
+        m = mateo_guionado("Objetivo: compartir en `ui/Editor.kt` con ACTION_SEND.\nPreguntas abiertas:\n- ¿Y si no hay red?\n- ¿Cual icono?")
+        r = m.armar_prompt(nota)
+        self.assertNotIn("Preguntas", r["prompt"])
+        self.assertNotIn("red", r["prompt"])
+
+    def test_reintento_con_la_lista_exacta_de_literales_que_faltaron(self):
+        sin = "Objetivo: exportar CSV.\nRequisitos:\n- max 500 filas"
+        con = "Objetivo: exportar CSV desde `ui/Lista.kt` con `ExportadorCsv`.\n- 500 filas"
+        m = mateo_guionado(sin, con)
+        r = m.armar_prompt(NOTA)
+        self.assertEqual(r["intentos"], 2)
+        segundo = m.pedidos[1][0][-1]["content"]
+        self.assertIn("Conserva tal cual:", segundo)
+        self.assertIn("ui/Lista.kt", segundo)
+        self.assertIn("ExportadorCsv", segundo)
+        self.assertEqual(fidelidad.faltantes(NOTA, r["prompt"]), [])
+
+    def test_si_siguen_faltando_literales_van_a_datos(self):
+        m = mateo_guionado("Objetivo: exportar CSV.")
+        r = m.armar_prompt(NOTA)
+        self.assertIn("Datos:", r["prompt"])
+        self.assertIn("ui/Lista.kt", r["prompt"])
+        self.assertIn("ExportadorCsv", r["prompt"])
+        self.assertEqual(fidelidad.faltantes(NOTA, r["prompt"]), [])
+        self.assertFalse(any("Falta" in a for a in r["advertencias"]))
+
+    def test_invenciones_se_reintentan_y_se_sacan(self):
+        inv = "Objetivo: exportar con Retrofit a `ui/Lista.kt`.\n- usar `ExportadorCsv`\n- 500 filas\n- Hilt"
+        m = mateo_guionado(inv)
+        r = m.armar_prompt(NOTA)
+        self.assertNotIn("Retrofit", r["prompt"])
+        self.assertNotIn("Hilt", r["prompt"])
+        self.assertIn("NO uses estos terminos", m.pedidos[1][0][-1]["content"])
+
+    def test_nota_corta_ya_densa_se_deja_compactada_con_mensaje_neutro(self):
+        corta = "Que Rite abra directo en la ultima nota editada."
+        m = mateo_guionado("Objetivo: Rite abre directo en la ultima nota editada, siempre y sin demora alguna.")
+        r = m.armar_prompt(corta)
+        self.assertEqual(r["prompt"], corta)
+        self.assertEqual(r["advertencias"], ["Tu nota ya era corta; la dejé compactada, sin cambios."])
+
+    def test_presupuesto_y_num_predict_en_el_pedido(self):
+        m = mateo_guionado("Objetivo: x `ui/Lista.kt` `ExportadorCsv` 500")
+        m.armar_prompt(NOTA)
+        mensajes, ops = m.pedidos[0]
+        self.assertIn("Maximo", mensajes[-1]["content"])
+        self.assertLess(ops["num_predict"], len(NOTA))
+        self.assertLessEqual(ops["temperature"], 0.1)
+
+    def test_errores_de_ollama_suben(self):
+        class Roto(Mateo):
+            def _llamar(self, *a):
+                raise MateoError("no")
+
+        with self.assertRaises(MateoError):
+            Roto().armar_prompt(NOTA)
+        with self.assertRaises(MateoError):
+            Roto().armar_prompt("   ")
+
+
+class IteracionTest(unittest.TestCase):
+    def test_preguntas_sugeridas_aparte_del_prompt(self):
+        buena = "Objetivo: boton exportar de `ui/Lista.kt` baja CSV.\nRequisitos:\n- usar `ExportadorCsv`\n- max 500 filas"
+        r = mateo_guionado(buena).armar_prompt(NOTA)
+        self.assertEqual(
+            r["preguntas_sugeridas"],
+            ["¿Que pasa si el CSV queda vacio?", "¿Conviene separar por comas?", "¿Y con mas de 500 filas?"],
+        )
+        for q in r["preguntas_sugeridas"]:
+            self.assertNotIn(q, r["prompt"])
+        self.assertEqual(r["preguntas_del_original"], ["No se si conviene separar por comas o por punto y coma."])
+        self.assertLessEqual(r["caracteres_despues"], r["caracteres_antes"])
+
+    def test_si_fallan_las_sugerencias_el_prompt_sale_igual(self):
+        m = mateo_guionado("Objetivo: boton exportar de `ui/Lista.kt` con `ExportadorCsv` y 500 filas")
+        m._sugerir = lambda t, mo: (_ for _ in ()).throw(MateoError("no"))
+        r = m.armar_prompt(NOTA)
+        self.assertEqual(r["preguntas_sugeridas"], [])
+        self.assertIn("Objetivo", r["prompt"])
+
+    def test_devuelve_solo_el_mejor_candidato_y_explica(self):
+        malo = "Objetivo: exportar con Retrofit."
+        medio = "Objetivo: exportar CSV.\n- 500 filas"
+        bueno = "Objetivo: exportar CSV de `ui/Lista.kt` con `ExportadorCsv`.\n- 500 filas"
+        m = mateo_guionado(malo, medio, bueno)
+        r = m.armar_prompt(NOTA)
+        self.assertEqual(r["intentos"], 3)
+        self.assertIn("`ExportadorCsv`", r["prompt"])
+        self.assertNotIn("Retrofit", r["prompt"])
+        self.assertNotIn("Datos:", r["prompt"])
+        self.assertIn("3 versiones", r["resumen_iteracion"].replace("probó", "probó"))
+        self.assertIn("3ª", r["resumen_iteracion"])
+
+    def test_para_de_iterar_cuando_un_candidato_pasa(self):
+        m = mateo_guionado("Objetivo: exportar CSV de `ui/Lista.kt` con `ExportadorCsv`, 500 filas")
+        r = m.armar_prompt(NOTA)
+        self.assertEqual(r["intentos"], 1)
+        self.assertEqual(len(m.pedidos), 1)
+
+    def test_pista_de_rehacer_llega_al_modelo(self):
+        m = mateo_guionado("Objetivo: exportar CSV de `ui/Lista.kt` con `ExportadorCsv`, 500 filas")
+        m.armar_prompt(NOTA, "mas corto y sin Descargas")
+        self.assertIn("mas corto y sin Descargas", m.pedidos[0][0][-1]["content"])
+
+    def test_organizar_elige_el_mejor_y_devuelve_uno(self):
+        nota = "comprar leche y pan en `Super.kt`, 2 litros"
+        m = mateo_guionado("Titulo\n- leche con Retrofit", "Compras\n- leche 2 litros\n- pan\n- `Super.kt`")
+        r = m.organizar(nota)
+        self.assertEqual(set(r), {"texto", "modelo", "resumen_iteracion"})
+        self.assertIn("`Super.kt`", r["texto"])
+        self.assertNotIn("Retrofit", r["texto"])
+        self.assertLessEqual(len(m.pedidos), 3)
+
+    def test_limpiar_preguntas(self):
+        q = armador.limpiar_preguntas("1) ¿Una?\n- ¿Pregunta valida numero uno?\nafirmacion\n¿Pregunta valida numero uno?\n¿" + "x" * 200 + "?", [])
+        self.assertEqual(q, ["¿Pregunta valida numero uno?"])
+        self.assertEqual(armador.limpiar_preguntas(["¿Esta ya estaba en la nota?"], ["¿esta ya estaba en la nota?"]), [])
+
+
+class PuntuacionTest(unittest.TestCase):
+    def test_orden_de_criterios(self):
+        o = "Hacer algo en `ui/A.kt` con 500 filas, con bastante texto de relleno para que sea largo y no corto"
+        sin_inv = puntuacion.puntuar(o, "Objetivo: `ui/A.kt` y 500", 60)
+        inv = puntuacion.puntuar(o, "Objetivo: `ui/A.kt` y 500 con Hilt", 60)
+        largo = puntuacion.puntuar(o, "Objetivo: `ui/A.kt` y 500 " + "x" * 80, 60)
+        falta = puntuacion.puntuar(o, "Objetivo: algo", 60)
+        self.assertTrue(sin_inv.pasa)
+        self.assertEqual(puntuacion.elegir([inv, largo, falta, sin_inv]), 3)
+        self.assertEqual(puntuacion.elegir([largo, falta]), 1)  # largo pesa mas que un literal faltante
+        self.assertEqual(puntuacion.elegir([inv, largo]), 1)    # invencion es lo peor
+        self.assertTrue(any("Conserva tal cual" in x for x in falta.pistas()))
+        self.assertTrue(any("NO uses" in x for x in inv.pistas()))
+        self.assertTrue(any("demasiado largo" in x for x in largo.pistas()))
+
+    def test_desempate_por_largo(self):
+        o = "Hacer algo con 500 filas y mucho relleno aqui y alla para tener largo suficiente"
+        a = puntuacion.puntuar(o, "Objetivo: 500 filas", 80)
+        b = puntuacion.puntuar(o, "Objetivo: 500 filas ya", 80)
+        self.assertEqual(puntuacion.elegir([b, a]), 1)
+
+
+class DudasTest(unittest.TestCase):
+    def test_extrae_frases_con_duda_tal_cual_maximo_3(self):
+        t = "Hacer X. ¿Va en Room? No se si conviene Y. Capaz Z. Tal vez W. Listo."
+        resto, d = fidelidad.separar_dudas(t)
+        self.assertEqual(d, ["¿Va en Room?", "No se si conviene Y.", "Capaz Z."])
+        self.assertIn("Hacer X.", resto)
+        self.assertNotIn("Room", resto)
+
+    def test_sin_dudas(self):
+        self.assertEqual(fidelidad.separar_dudas("Hacer X. Hacer Y.")[1], [])
+
+    def test_numeros_y_versiones(self):
+        self.assertEqual(fidelidad.literales("de 8.9 a 8.11.1 y Room (que esta en la 2)"), ["8.9", "8.11.1", "2"])
+        self.assertEqual(fidelidad.faltantes("Room 2 y 8.11.1", "Room 22 y 8.11"), ["2", "8.11.1"])
+        self.assertEqual(fidelidad.faltantes("tarda 400 ms", "tarda 400ms"), [])
 
 
 class PuenteTest(unittest.TestCase):
@@ -136,6 +325,10 @@ class PuenteTest(unittest.TestCase):
         self.assertEqual((r["caracteres_antes"], r["caracteres_despues"]), (len(orig), 26))
         self.assertEqual(r["advertencias"], [])
         self.assertEqual(r["modelo"], "falso:1b")
+        self.assertEqual(r["preguntas_sugeridas"], ["¿Y si falla?"])
+        self.assertEqual(r["preguntas_del_original"], [])
+        self.assertEqual(pedir(self.base, "/mateo/prompt", {"texto": orig, "pista": "mas corto"}, token)[1]["pista"], "mas corto")
+        self.assertEqual(pedir(self.base, "/mateo/prompt", {"texto": orig, "pista": 5}, token)[0], 400)
 
     def test_prompt_errores(self):
         token = self.vincular()
@@ -271,7 +464,7 @@ class MateoRealTest(unittest.TestCase):
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
             m = Mateo(f"http://127.0.0.1:{srv.server_port}", "qwen3:8b")
-            self.assertEqual(m.organizar("  hola  "), "Nota limpia")
+            self.assertEqual(m.organizar("  hola  ")["texto"], "Nota limpia")
             self.assertEqual(visto["cuerpo"]["model"], "qwen3:8b")
             self.assertFalse(visto["cuerpo"]["stream"])
             self.assertEqual(visto["cuerpo"]["messages"][1]["content"], "hola")

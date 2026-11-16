@@ -136,14 +136,16 @@ class Manejador(BaseHTTPRequestHandler):
             if not isinstance(texto, str):
                 self._responder(400, {"error": "Falta el campo texto"})
                 return
+            pista = d.get("pista", "")
+            if not isinstance(pista, str):
+                self._responder(400, {"error": "El campo pista debe ser texto"})
+                return
             try:
                 if self.path == "/mateo/prompt":
-                    self._responder(200, self.server.mateo.armar_prompt(texto))
-                    return
-                salida = self.server.mateo.organizar(texto)
+                    self._responder(200, self.server.mateo.armar_prompt(texto, pista))
+                else:
+                    self._responder(200, self.server.mateo.organizar(texto, pista))
             except MateoError as e:
                 self._responder(502, {"error": str(e)})
-                return
-            self._responder(200, {"texto": salida, "modelo": self.server.mateo.modelo})
         else:
             self._responder(404, {"error": "No existe"})

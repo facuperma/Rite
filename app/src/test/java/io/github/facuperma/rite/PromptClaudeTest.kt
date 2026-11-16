@@ -3,7 +3,10 @@ package io.github.facuperma.rite
 import io.github.facuperma.rite.red.META_PROMPT
 import io.github.facuperma.rite.red.esVersionPrompt
 import io.github.facuperma.rite.red.estimarTokens
+import io.github.facuperma.rite.red.parsearOrganizar
 import io.github.facuperma.rite.red.parsearPrompt
+import io.github.facuperma.rite.ui.agregarPregunta
+import androidx.compose.ui.text.input.TextFieldValue
 import io.github.facuperma.rite.red.textoEstimacion
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -40,6 +43,33 @@ class PromptClaudeTest {
         assertEquals(100, r.caracteresAntes)
         assertEquals(12, r.caracteresDespues)
         assertEquals(listOf("Falta «2»", "otra"), r.advertencias)
+    }
+
+    @Test
+    fun parsea_resumen_y_preguntas() {
+        val r = parsearPrompt(
+            JSONObject(
+                """{"prompt":"p","caracteres_antes":10,"caracteres_despues":5,"resumen_iteracion":"Mateo probó 2 versiones",
+                   "preguntas_del_original":["¿Room o memoria?"],"preguntas_sugeridas":["¿Y si no hay red?","¿Cuántas filas?"]}""",
+            ),
+        )
+        assertEquals("Mateo probó 2 versiones", r.resumenIteracion)
+        assertEquals(listOf("¿Room o memoria?"), r.preguntasDelOriginal)
+        assertEquals(listOf("¿Y si no hay red?", "¿Cuántas filas?"), r.preguntasSugeridas)
+    }
+
+    @Test
+    fun parsea_organizar_con_o_sin_resumen() {
+        val r = parsearOrganizar(JSONObject("""{"texto":"Nota","resumen_iteracion":"1 versión"}"""))
+        assertEquals("Nota", r.texto)
+        assertEquals("1 versión", r.resumenIteracion)
+        assertEquals("", parsearOrganizar(JSONObject("""{"texto":"x"}""")).resumenIteracion)
+    }
+
+    @Test
+    fun agregar_pregunta_a_la_nota() {
+        assertEquals("¿Q?", agregarPregunta(TextFieldValue(""), "¿Q?").text)
+        assertEquals("hola\n¿Q?", agregarPregunta(TextFieldValue("hola  \n"), "¿Q?").text)
     }
 
     @Test

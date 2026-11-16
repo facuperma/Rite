@@ -175,7 +175,8 @@ class RepositorioTest {
         ahora += 1
         assertNotNull(repo.registrarVersion(id, Version.MATEO, "texto"))
         ahora += 1
-        assertNotNull(repo.registrarVersion(id, Version.USUARIO, "texto"))
+        assertNull(repo.registrarVersion(id, Version.USUARIO, "texto")) // ya existe una igual: sin duplicados
+        assertNotNull(repo.registrarVersion(id, Version.USUARIO, "otro"))
         assertEquals(3, repo.versiones(id).first().size)
     }
 }
