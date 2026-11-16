@@ -20,6 +20,7 @@ class Puntaje:
     faltan: list = field(default_factory=list)
     inventadas: list = field(default_factory=list)
     estructura: bool = True
+    omitidas: list = field(default_factory=list)
 
     @property
     def largo_ok(self) -> bool:
@@ -32,7 +33,7 @@ class Puntaje:
     @property
     def clave(self) -> tuple:
         """Menor es mejor."""
-        return (bool(self.inventadas), not self.largo_ok, len(self.faltan), not self.estructura, self.largo)
+        return (bool(self.inventadas), not self.largo_ok, len(self.faltan), len(self.omitidas), not self.estructura, self.largo)
 
     def pistas(self, base_original: str = "la idea") -> list[str]:
         p = []
@@ -62,6 +63,7 @@ def puntuar(original: str, candidato: str, limite: int, literales_de: str | None
         limite=limite,
         ratio=len(candidato) / max(1, len(original)),
         faltan=fidelidad.faltantes(base, candidato),
+        omitidas=fidelidad.omitidas(base, candidato),
         inventadas=fidelidad.invenciones(original, candidato),
         estructura=(not estructura_prompt) or candidato.strip().lower().startswith(CABECERAS_PROMPT[0]) or _alguna_cabecera(candidato),
     )

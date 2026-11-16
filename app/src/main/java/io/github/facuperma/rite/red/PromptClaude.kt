@@ -12,6 +12,7 @@ data class ResultadoPrompt(
     val resumenIteracion: String = "",
     val preguntasDelOriginal: List<String> = emptyList(),
     val preguntasSugeridas: List<String> = emptyList(),
+    val dejadoAfuera: List<String> = emptyList(),
 )
 
 /** Respuesta de POST /mateo/organizar: un solo texto (el mejor de los candidatos internos). */
@@ -34,6 +35,7 @@ fun parsearPrompt(o: JSONObject): ResultadoPrompt {
         resumenIteracion = o.optString("resumen_iteracion"),
         preguntasDelOriginal = lista(o, "preguntas_del_original"),
         preguntasSugeridas = lista(o, "preguntas_sugeridas"),
+        dejadoAfuera = lista(o, "dejado_afuera"),
     )
 }
 

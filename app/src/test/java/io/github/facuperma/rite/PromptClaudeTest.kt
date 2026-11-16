@@ -5,6 +5,7 @@ import io.github.facuperma.rite.red.esVersionPrompt
 import io.github.facuperma.rite.red.estimarTokens
 import io.github.facuperma.rite.red.parsearOrganizar
 import io.github.facuperma.rite.red.parsearPrompt
+import io.github.facuperma.rite.ui.agregarLinea
 import io.github.facuperma.rite.ui.agregarPregunta
 import androidx.compose.ui.text.input.TextFieldValue
 import io.github.facuperma.rite.red.textoEstimacion
@@ -56,6 +57,15 @@ class PromptClaudeTest {
         assertEquals("Mateo probó 2 versiones", r.resumenIteracion)
         assertEquals(listOf("¿Room o memoria?"), r.preguntasDelOriginal)
         assertEquals(listOf("¿Y si no hay red?", "¿Cuántas filas?"), r.preguntasSugeridas)
+    }
+
+    @Test
+    fun parsea_lo_dejado_afuera_y_lo_agrega_al_prompt() {
+        val r = parsearPrompt(JSONObject("""{"prompt":"p","caracteres_antes":1,"caracteres_despues":1,"dejado_afuera":["comprar cable usb c"]}"""))
+        assertEquals(listOf("comprar cable usb c"), r.dejadoAfuera)
+        assertEquals("Objetivo: x\ncomprar cable usb c", agregarLinea("Objetivo: x  \n", "comprar cable usb c"))
+        assertEquals("a", agregarLinea("", "a"))
+        assertTrue(parsearPrompt(JSONObject("""{"prompt":"p"}""")).dejadoAfuera.isEmpty())
     }
 
     @Test

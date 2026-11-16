@@ -88,7 +88,13 @@ def mateo_guionado(*salidas):
             self._s = list(salidas)
 
         def _sugerir(self, texto, modelo):
-            return "- ¿Que pasa si el CSV queda vacio?\n1. ¿Conviene separar por comas?\nno es pregunta\n¿Y con mas de 500 filas?\n¿Una cuarta pregunta?"
+            return ("- ¿Que pasa si el CSV queda vacio? | \"baje un CSV con las notas\"\n"
+                    "1. ¿Conviene separar por comas? | \"separar por comas o por punto y coma\"\n"
+                    "¿Que pasa si no hay internet? | \"conexion\"\n"
+                    "¿Sin cita?\n"
+                    "no es pregunta\n"
+                    "¿Y con mas de 500 filas? | \"maximo 500 filas\"\n"
+                    "¿Una cuarta pregunta? | \"baje un CSV\"")
 
         def _llamar(self, mensajes, modelo, opciones):
             self.pedidos.append((mensajes, opciones))
@@ -266,6 +272,40 @@ class PuntuacionTest(unittest.TestCase):
         a = puntuacion.puntuar(o, "Objetivo: 500 filas", 80)
         b = puntuacion.puntuar(o, "Objetivo: 500 filas ya", 80)
         self.assertEqual(puntuacion.elegir([b, a]), 1)
+
+
+class OmitidasTest(unittest.TestCase):
+    CABLE = "mateo resume cada 10 mensajes. pasar notas a claude. comprar cable usb c. llamar al mecanico el jueves"
+
+    def test_detecta_la_frase_que_se_perdio(self):
+        p = "Mateo resume cada 10 mensajes. Pasar notas a Claude. Llamar mecanico jueves."
+        self.assertEqual(fidelidad.omitidas(self.CABLE, p), ["comprar cable usb c"])
+        self.assertEqual(fidelidad.omitidas(self.CABLE, p + " Comprar cable usb c."), [])
+
+    def test_la_respuesta_informa_lo_dejado_afuera(self):
+        m = mateo_guionado("Objetivo: Mateo resume cada 10 mensajes.\n- pasar notas a Claude\n- llamar mecanico jueves")
+        r = m.armar_prompt(self.CABLE)
+        self.assertEqual(r["dejado_afuera"], ["comprar cable usb c"])
+        self.assertIn("Dejé afuera 1 frase", r["resumen_iteracion"])
+        self.assertLessEqual(r["caracteres_despues"], r["caracteres_antes"])
+
+    def test_si_esta_todo_no_hay_nada_afuera(self):
+        m = mateo_guionado("Objetivo: Mateo resume cada 10 mensajes.\n- pasar notas a Claude\n- comprar cable usb c\n- llamar mecanico jueves")
+        self.assertEqual(m.armar_prompt(self.CABLE)["dejado_afuera"], [])
+
+    def test_nota_corta_no_genera_preguntas(self):
+        m = mateo_guionado("Objetivo: x")
+        self.assertEqual(m.armar_prompt("Que Rite abra directo en la ultima nota editada.")["preguntas_sugeridas"], [])
+
+    def test_preguntas_sin_cita_o_genericas_se_descartan(self):
+        nota = "Que la papelera se vacie sola a los 30 dias y que se pueda recuperar una nota antes, con el boton de restaurar."
+        crudo = (
+            "¿Que pasa si no hay conexion a internet? | \"conexion\"\n"
+            "¿Como se asegura que las notas sean claras?\n"
+            "¿Se avisa antes de vaciar la papelera? | \"se vacie sola a los 30 dias\"\n"
+            "¿Y si la cita no esta en la nota? | \"algo inventado que no dice\""
+        )
+        self.assertEqual(armador.limpiar_preguntas(crudo, [], nota), ["¿Se avisa antes de vaciar la papelera?"])
 
 
 class DudasTest(unittest.TestCase):

@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -99,6 +100,7 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
     val etiquetas by vm.etiquetasDe(id).collectAsState(initial = emptyList())
     val carpetas by vm.carpetas.collectAsState()
     var menuCarpeta by remember { mutableStateOf(false) }
+    var menuAcciones by remember { mutableStateOf(false) }
     var etiquetaNueva by remember { mutableStateOf("") }
 
     var estadoMateo by remember { mutableStateOf<EstadoMateo?>(null) }
@@ -177,10 +179,15 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                 navigationIcon = { IconButton(onClick = { salir() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver") } },
                 actions = {
                     if (actual != null) {
-                        TextButton(onClick = { pistaMateo = ""; pedirMateo("") }) { Text("Mateo") }
-                        TextButton(onClick = { pistaPrompt = ""; pedirPrompt("") }) { Text("Prompt para Claude") }
-                        if (versiones.isNotEmpty()) {
-                            TextButton(onClick = { verVersiones = true }) { Text("Versiones (${versiones.size})") }
+                        Box {
+                            IconButton(onClick = { menuAcciones = true }) { Icon(Icons.Default.MoreVert, "Más acciones") }
+                            DropdownMenu(expanded = menuAcciones, onDismissRequest = { menuAcciones = false }) {
+                                DropdownMenuItem(text = { Text("Mateo") }, onClick = { menuAcciones = false; pistaMateo = ""; pedirMateo("") })
+                                DropdownMenuItem(text = { Text("Prompt para Claude") }, onClick = { menuAcciones = false; pistaPrompt = ""; pedirPrompt("") })
+                                if (versiones.isNotEmpty()) {
+                                    DropdownMenuItem(text = { Text("Versiones (${versiones.size})") }, onClick = { menuAcciones = false; verVersiones = true })
+                                }
+                            }
                         }
                         IconButton(onClick = {
                             vm.fijar(id, !actual.fijada)
@@ -334,6 +341,7 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
         is EstadoPrompt.Listo -> {
             var editado by remember(p) { mutableStateOf(p.resultado.prompt) }
             var elegida by remember(p) { mutableStateOf<String?>(null) }
+            var repuestas by remember(p) { mutableStateOf(emptySet<String>()) }
             AlertDialog(
                 onDismissRequest = { estadoPrompt = null },
                 title = { Text("Prompt para Claude Code") },
@@ -355,6 +363,23 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                             onValueChange = { editado = it },
                             modifier = Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 140.dp, max = 300.dp),
                         )
+                        if (p.resultado.dejadoAfuera.isNotEmpty()) {
+                            Text(
+                                "Dejé afuera (tocá para volver a agregar):",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            p.resultado.dejadoAfuera.filter { it !in repuestas }.forEach { f ->
+                                Text(
+                                    "＋ «$f»",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        editado = agregarLinea(editado, f)
+                                        repuestas = repuestas + f
+                                    }.padding(vertical = 4.dp),
+                                )
+                            }
+                        }
                         if (p.resultado.preguntasSugeridas.isNotEmpty()) {
                             Text(
                                 "Preguntas de Mateo (ideas, no entran en el prompt)",
@@ -421,6 +446,12 @@ sealed interface EstadoPrompt {
     data object Cargando : EstadoPrompt
     data class Listo(val resultado: ResultadoPrompt) : EstadoPrompt
     data class Error(val msg: String) : EstadoPrompt
+}
+
+/** Agrega una línea al final de un texto (sin dejar espacios de más). */
+fun agregarLinea(texto: String, linea: String): String {
+    val base = texto.trimEnd()
+    return if (base.isEmpty()) linea else base + "\n" + linea
 }
 
 /** Agrega una pregunta al final de la nota (una línea nueva). */

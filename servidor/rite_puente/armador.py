@@ -6,6 +6,7 @@ from typing import Callable
 from . import fidelidad, puntuacion
 
 CANDIDATOS = 3  # K por defecto
+MIN_PARA_PREGUNTAS = 120  # notas mas cortas no generan preguntas
 RATIO_OBJETIVO = 0.55      # notas largas
 RATIO_CORTAS = 0.80        # notas < 300 caracteres
 UMBRAL_CORTA = 300
@@ -136,11 +137,15 @@ def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = 
     sugeridas: list[str] = []
     if sugerir is not None:
         try:
-            sugeridas = limpiar_preguntas(sugerir(original), dudas)
+            sugeridas = limpiar_preguntas(sugerir(original), dudas, original) if len(original) >= MIN_PARA_PREGUNTAS else []
         except Exception:  # las sugerencias son un extra: si fallan, el prompt sale igual
             sugeridas = []
+    afuera = [] if final == compactado else fidelidad.omitidas(original, final)
+    if afuera:
+        resumen_it = (resumen_it + " " if resumen_it else "") + f"Dejé afuera {len(afuera)} frase{'s' if len(afuera) != 1 else ''} (podés volver a agregarlas)."
     return {
         "prompt": final,
+        "dejado_afuera": afuera,
         "modelo": modelo,
         "caracteres_antes": len(original),
         "caracteres_despues": len(final),
@@ -153,19 +158,29 @@ def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = 
 
 
 SISTEMA_PREGUNTAS = (
-    "Lees una idea de software y propones hasta 3 preguntas CORTAS y utiles que ayuden a pensarla mejor: dudas de diseño, "
-    "casos borde o alternativas. Una por linea, cada una termina en '?', maximo 110 caracteres, sin numerar, sin explicar, "
-    "sin repetir lo que la idea ya pregunta. Si no se te ocurre nada util, devolve una linea vacia."
+    "Lees una nota y propones hasta 3 preguntas CORTAS que ayuden a pensar MEJOR ESA nota: dudas de diseño, casos borde o "
+    "alternativas sobre lo que la nota dice. Formato de cada linea, exacto: ¿pregunta? | \"frase textual de la nota que la motivo\". "
+    "La frase entre comillas tiene que estar copiada de la nota. Maximo 110 caracteres por pregunta. Prohibido preguntar "
+    "generalidades (conexion, seguridad, 'el sistema', 'el usuario') que la nota no menciona. Si la nota es muy corta o no "
+    "hay una base concreta, devolve una linea vacia."
 )
 
 
-def limpiar_preguntas(crudo, del_original: list[str] | None = None, maximo: int = 3) -> list[str]:
-    """Acepta texto (una por linea) o lista; deja hasta `maximo` preguntas cortas, sin repetidas ni las del original."""
+def limpiar_preguntas(crudo, del_original: list[str] | None = None, nota: str | None = None, maximo: int = 3) -> list[str]:
+    """Deja hasta `maximo` preguntas cortas, sin repetidas ni las del original.
+
+    Con `nota`, exige formato «¿pregunta? | "cita"», que la cita este en la nota y que la pregunta comparta contenido con ella.
+    """
     lineas = crudo.splitlines() if isinstance(crudo, str) else list(crudo)
     conocidas = {re.sub(r"\W+", "", d.lower()) for d in (del_original or [])}
     out: list[str] = []
     for l in lineas:
         q = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", str(l)).strip()
+        if nota is not None:
+            q, sep, cita = q.partition("|")
+            q = q.strip()
+            if not sep or not fidelidad.contiene_cita(cita, nota) or not fidelidad.comparte_contenido(q, nota):
+                continue
         if not q.endswith("?") or len(q) < 8 or len(q) > 140:
             continue
         k = re.sub(r"\W+", "", q.lower())

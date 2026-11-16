@@ -28,6 +28,7 @@ NOTAS = [
  ("larga_estado", "Quiero rehacer la pantalla de Ajustes de Rite. Hoy en `ui/Ajustes.kt` hay solo un boton para vincular la PC y otro para desvincular, y se ve feo. La idea es tener secciones: PC vinculada (nombre, direccion, estado del puente con el indicador verde o rojo segun `estadoPuente()`), Apariencia (tema, tamaño de letra: chica, normal, grande), Papelera (dias para vaciar, hoy 30, con opciones 7, 14, 30, 60), Datos (exportar todo a un .zip, importar desde un .zip) y Acerca de (version de la app 1.0 y del puente). Todo tiene que guardarse en la tabla ajuste con claves `tema`, `fuente`, `papelera_dias`. Los textos en español rioplatense. No usar librerias nuevas ni cambiar la version de Room (2). El zip de exportacion tiene que contener un `notas.json` y una carpeta `adjuntos/` aunque este vacia. Importante: importar nunca debe pisar notas existentes con el mismo id sin preguntar, y hay que mostrar cuantas notas se importaron. Como no estoy seguro de si el zip va cifrado, dejalo para despues. Cuando termine tienen que pasar `testDebugUnitTest` y compilar `assembleDebug`."),
  ("tecnico_log", "El puente tira 'RemoteDisconnected: Remote end closed connection without response' en `test_prompt_endpoint` cuando Mateo falso tarda. Pasa solo a veces (1 de 5). Sospecho del `ThreadingHTTPServer` y `protocol_version = HTTP/1.1` con keep-alive en `servidor.py`: si el cliente cierra antes de que respondamos, `wfile.write` revienta. Probar con `Connection: close` en `_responder`. Medir antes y despues corriendo los tests 20 veces."),
  ("pocas_palabras", "Que Rite abra directo en la ultima nota editada."),
+ ("cable_usb", "mateo resume cada 10 mensajes. pasar notas a claude. comprar cable usb c. llamar al mecanico el jueves"),
  ("ux", "La barra de arriba del editor ya tiene muchos botones (Mateo, Prompt para Claude, Versiones, estrella, papelera) y en pantallas chicas se cortan. Quiero agrupar Mateo y Prompt en un menu desplegable con el icono de varita, dejando afuera solo la estrella y la papelera. Los textos de las opciones del menu: «Organizar con Mateo» y «Prompt para Claude». Versiones va dentro de un menu de tres puntos."),
 ]
 
@@ -40,7 +41,16 @@ def evaluar(nota, r):
     cuerpo = re.sub(r"Preguntas abiertas:\n(?:- .*\n?)*", "", p)  # las dudas del propio texto van tal cual
     tec = fidelidad.invenciones(nota, cuerpo)
     sug = r.get("preguntas_sugeridas", [])
-    sug_ok = len(sug) <= 3 and all(q.endswith("?") and len(q) <= 140 and q not in p for q in sug)
+    sug_ok = len(sug) <= 3 and all(q.endswith("?") and len(q) <= 140 and q not in p and fidelidad.comparte_contenido(q, nota) for q in sug)
+    if len(nota) < 120 and sug:
+        sug_ok = False
+    # nada se pierde en silencio: lo que falta del original tiene que estar en dejado_afuera
+    afuera = r.get("dejado_afuera", [])
+    perdidas = [c for c in fidelidad.omitidas(nota, p) if c not in afuera]
+    if nota.startswith("mateo resume") and "cable" not in p and not any("cable" in c for c in afuera):
+        perdidas.append("cable usb c")
+    if perdidas:
+        sug_ok = False
     return len(p) / len(nota), pct, tec, sug, sug_ok
 
 
@@ -54,7 +64,7 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     m = Mateo(modelo_prompt=a.modelo, timeout=600)
     sel = {x for x in a.solo.split(",") if x}
-    print(f"{'nota':16}{'antes':>6}{'desp':>6}{'ratio':>7}{'lit%':>6}{'sug':>4}{'tec+':>5}{'cand':>5}{'seg':>6}  inventadas")
+    print(f"{'nota':16}{'antes':>6}{'desp':>6}{'ratio':>7}{'lit%':>6}{'sug':>4}{'afu':>4}{'tec+':>5}{'cand':>5}{'seg':>6}  inventadas")
     tot, largas, fallos = [], [], 0
     for nombre, nota in NOTAS:
         if sel and nombre not in sel:
@@ -69,7 +79,7 @@ def main():
             tot.append(ratio)
             if len(nota) >= 500:
                 largas.append(ratio)
-            print(f"{nombre:16}{len(nota):6}{len(r['prompt']):6}{ratio:7.2f}{pct:6.0f}{len(sug):4}{len(tec):5}{r['intentos']:5}{seg:6.1f}  {','.join(tec)}{' <-- MAL' if mal else ''}{' [compactada]' if r['advertencias'] else ''}")
+            print(f"{nombre:16}{len(nota):6}{len(r['prompt']):6}{ratio:7.2f}{pct:6.0f}{len(sug):4}{len(r.get('dejado_afuera', [])):4}{len(tec):5}{r['intentos']:5}{seg:6.1f}  {','.join(tec)}{' <-- MAL' if mal else ''}{' [compactada]' if r['advertencias'] else ''}")
             if a.ver:
                 print("   [" + r.get("resumen_iteracion", "") + "]")
                 for q in sug:

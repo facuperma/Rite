@@ -5,6 +5,8 @@ import re
 _CODIGO = re.compile(r"`([^`\n]+)`")
 _RUTA = re.compile(r"(?<![\w`])(?:[A-Za-z]:)?[/\\]?(?:[\w.\-]+[/\\])+[\w.\-]*|(?<![\w`/\\])[\w\-]+\.(?:kt|py|md|json|kts|xml|ps1|ts|tsx|js|sql|gradle|toml|yml|yaml|txt|html|css)\b")
 _IDENT = re.compile(r"\b(?:[a-z]+(?:_[a-z0-9]+)+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|[A-Z]{2,}(?:_[A-Z0-9]+)+)\b")
+_SIGLA_LETRA = re.compile(r"\b([a-z]{2,4}) [b-df-hj-np-tv-xz]\b|\b([A-Z]{2,5}) [A-Z]\b")
+_FUNCIONALES = {"de", "en", "un", "el", "la", "los", "las", "por", "con", "sin", "que", "se", "su", "al", "lo", "del", "para", "y"}
 _NUMERO = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)*(?!\d)(?![.,]\d)")
 
 
@@ -27,6 +29,9 @@ def literales(texto: str) -> list[str]:
             agregar(m.group(0))
     for m in _NUMERO.finditer(sin_codigo):
         agregar(m.group(0))
+    for m in _SIGLA_LETRA.finditer(sin_codigo):
+        if (m.group(1) or "") not in _FUNCIONALES:
+            agregar(m.group(0))
     return vistos
 
 
@@ -143,3 +148,61 @@ def invenciones(original: str, prompt: str) -> list[str]:
                 malos.append(w)
             previa = linea[: m.end()]
     return malos
+
+
+# ---- v3: frases omitidas (visibles y reversibles) ----
+
+_VACIAS = {
+    "para", "pero", "como", "esto", "esta", "este", "esos", "esas", "ese", "esa", "that", "with", "from", "this", "have",
+    "gracias", "saludos", "hola", "obvio", "entonces", "porque", "cuando", "tambien", "ademas", "algo", "todo", "toda",
+    "todos", "todas", "quiero", "necesito", "hacer", "tiene", "tienen", "tendria", "habria", "sobre", "desde", "hasta",
+    "mucho", "muchos", "poco", "solo", "ahora", "igual", "bien", "mejor", "tengo", "hace", "puede", "pueden", "debe",
+    "deben", "otra", "otro", "otros", "otras", "cada", "donde", "which", "should", "would", "could", "para", "nota",
+    "notas", "sistema", "usuario",
+}
+
+
+def _raices(texto: str) -> set[str]:
+    """Raices (5 letras sin acentos) de las palabras de contenido de un texto."""
+    out = set()
+    for w in re.findall(r"[^\W_]{3,}", texto, re.U):
+        n = _norm(w)
+        if n in _VACIAS or n.isdigit():
+            continue
+        out.add(n[:5])
+    return out
+
+
+def clausulas(texto: str) -> list[str]:
+    """Frases / lineas / items de lista del texto, sin viñetas."""
+    out = []
+    for linea in texto.splitlines():
+        linea = re.sub(r"^\s*(?:[-*•☐☑]|\d+[.)])\s*", "", linea).strip()
+        for f in re.split(r"(?<=[.!?;])\s+", linea):
+            if f.strip():
+                out.append(f.strip())
+    return out
+
+
+def omitidas(original: str, prompt: str, maximo: int = 3) -> list[str]:
+    """Frases del original cuyo contenido casi no aparece en el prompt (se dejaron afuera)."""
+    en_prompt = _raices(prompt)
+    res = []
+    for c in clausulas(original):
+        r = _raices(c)
+        if not r:
+            continue
+        if len(r & en_prompt) / len(r) < 0.34:
+            res.append(c.rstrip(".;"))
+        if len(res) >= maximo:
+            break
+    return res
+
+
+def comparte_contenido(pregunta: str, nota: str, minimo: int = 1) -> bool:
+    return len(_raices(pregunta) & _raices(nota)) >= minimo
+
+
+def contiene_cita(cita: str, nota: str) -> bool:
+    c = re.sub(r"\s+", " ", _norm(cita).strip(" \"'«»“”.,;:¿?"))
+    return len(c) >= 6 and c in re.sub(r"\s+", " ", _norm(nota))
