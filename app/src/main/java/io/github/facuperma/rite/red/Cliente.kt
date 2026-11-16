@@ -86,6 +86,9 @@ class Cliente(private val v: Vinculo) {
 
     suspend fun organizar(texto: String): String =
         llamar("/mateo/organizar", JSONObject().put("texto", texto), v.token).getString("texto")
+
+    suspend fun armarPrompt(texto: String): ResultadoPrompt =
+        parsearPrompt(llamar("/mateo/prompt", JSONObject().put("texto", texto), v.token))
 }
 
 /** Guarda a qué PC está vinculada la app. El token queda en el almacenamiento privado de la app (sin backup). */

@@ -14,6 +14,8 @@ import io.github.facuperma.rite.red.Cliente
 import io.github.facuperma.rite.red.Enlace
 import io.github.facuperma.rite.red.ErrorPuente
 import io.github.facuperma.rite.red.EstadoPuente
+import io.github.facuperma.rite.red.META_PROMPT
+import io.github.facuperma.rite.red.ResultadoPrompt
 import io.github.facuperma.rite.red.Vinculo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -94,6 +96,19 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
         val salida = Cliente(v).organizar(texto)
         repo.registrarVersion(id, Version.MATEO, salida)
         salida
+    }
+
+    /** Pide a Mateo un prompt compacto para Claude Code. No se envía a Claude; el original se guarda como versión. */
+    suspend fun armarPromptClaude(id: Long, titulo: String, cuerpo: String): Result<ResultadoPrompt> = runCatching {
+        val v = vinculo.value?.takeIf { it.token != null } ?: throw ErrorPuente("Primero vinculá la PC en Ajustes")
+        val texto = (if (titulo.isBlank()) cuerpo else "$titulo\n\n$cuerpo").trim()
+        if (texto.isEmpty()) throw ErrorPuente("La nota está vacía")
+        repo.registrarVersion(id, Version.USUARIO, texto)
+        Cliente(v).armarPrompt(texto)
+    }
+
+    suspend fun guardarPrompt(id: Long, texto: String) {
+        if (texto.isNotBlank()) repo.registrarVersion(id, Version.MATEO, texto.trim(), META_PROMPT)
     }
 
     fun versiones(id: Long): Flow<List<Version>> = repo.versiones(id)

@@ -34,6 +34,7 @@ def main(argv=None) -> int:
     s.add_argument("--escuchar", default="0.0.0.0")
     s.add_argument("--direccion", help="IP que se escribe en el enlace de vinculacion (por defecto la de la LAN)")
     s.add_argument("--modelo", default="qwen3:8b")
+    s.add_argument("--modelo-prompt", default=None, help="modelo para 'Prompt para Claude' (por defecto el mismo que --modelo)")
     s.add_argument("--ollama", default="http://127.0.0.1:11434")
     s.add_argument("--sin-codigo", action="store_true", help="no genera ni imprime codigo de vinculacion (para arranque automatico)")
 
@@ -89,7 +90,7 @@ def main(argv=None) -> int:
         print(_enlace(direccion, a.puerto, vinculos.nuevo_codigo(), huella))
         return 0
 
-    puente = Puente((a.escuchar, a.puerto), vinculos, Mateo(a.ollama, a.modelo), Proyectos(datos), cert, clave)
+    puente = Puente((a.escuchar, a.puerto), vinculos, Mateo(a.ollama, a.modelo, modelo_prompt=a.modelo_prompt), Proyectos(datos), cert, clave)
     print(f"Puente de Rite escuchando en {a.escuchar}:{puente.puerto} (HTTPS). Huella: {huella}")
     if not a.sin_codigo:
         print("Para vincular un celular, pega este enlace en la app (vale 10 minutos, un solo uso):")

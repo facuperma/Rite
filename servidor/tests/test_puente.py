@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from rite_puente import certificado
 from rite_puente.config import Proyectos, carpeta_datos
-from rite_puente.mateo import Mateo, MateoError
+from rite_puente import fidelidad
+from rite_puente.mateo import Mateo, MateoError, controlar_prompt
 from rite_puente.servidor import Puente, ip_permitida
 from rite_puente.vinculos import MAX_INTENTOS, VIGENCIA_CODIGO, Vinculos
 
@@ -33,6 +34,13 @@ class MateoFalso:
         self.recibido.append(texto)
         return "# Titulo\n- " + texto.strip()
 
+    salida_prompt = "Objetivo: x"
+
+    def armar_prompt(self, texto):
+        if texto == "falla":
+            raise MateoError("Mateo no responde")
+        return controlar_prompt(texto.strip(), self.salida_prompt, self.modelo)
+
 
 def pedir(base, ruta, cuerpo=None, token=None, ctx=None):
     datos = None if cuerpo is None else json.dumps(cuerpo).encode()
@@ -45,6 +53,47 @@ def pedir(base, ruta, cuerpo=None, token=None, ctx=None):
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read())
+
+
+ORIGINAL = (
+    "Quiero que en `ui/Editor.kt` haya un boton nuevo junto al de Mateo. Debe llamar a POST /mateo/prompt "
+    "y usar el campo caracteres_antes. El tope es 8000 caracteres y la estimacion 1,5 veces. "
+    "Hay que revisar servidor/rite_puente/mateo.py tambien, con mucho cuidado y detalle porque es importante."
+)
+
+
+class FidelidadTest(unittest.TestCase):
+    def test_literales(self):
+        l = fidelidad.literales(ORIGINAL)
+        for x in ("ui/Editor.kt", "caracteres_antes", "8000", "1,5", "servidor/rite_puente/mateo.py", "/mateo/prompt"):
+            self.assertIn(x, l)
+
+    def test_faltantes(self):
+        bueno = "Objetivo: boton en ui/Editor.kt; POST /mateo/prompt; caracteres_antes; 8000; 1,5; servidor/rite_puente/mateo.py"
+        self.assertEqual(fidelidad.faltantes(ORIGINAL, bueno), [])
+        malo = "Objetivo: boton; 8000"
+        f = fidelidad.faltantes(ORIGINAL, malo)
+        self.assertIn("ui/Editor.kt", f)
+        self.assertIn("caracteres_antes", f)
+        self.assertNotIn("8000", f)
+
+    def test_controlar_avisa_faltantes(self):
+        r = controlar_prompt(ORIGINAL, "Objetivo: boton nuevo; 8000", "m")
+        self.assertEqual(r["prompt"], "Objetivo: boton nuevo; 8000")
+        self.assertTrue(r["advertencias"])
+        self.assertIn("ui/Editor.kt", r["advertencias"][0])
+        self.assertEqual(r["caracteres_antes"], len(ORIGINAL))
+        self.assertEqual(r["caracteres_despues"], len(r["prompt"]))
+
+    def test_sin_advertencias_si_conserva_todo(self):
+        p = "Obj: ui/Editor.kt, /mateo/prompt, caracteres_antes, 8000, 1,5, servidor/rite_puente/mateo.py"
+        self.assertEqual(controlar_prompt(ORIGINAL, p, "m")["advertencias"], [])
+
+    def test_mas_largo_devuelve_original_compactado(self):
+        orig = "hacer   algo\n\n\n\ncon `x_y`"
+        r = controlar_prompt(orig, "un texto muchisimo mas largo que el original, con `x_y` y relleno", "m")
+        self.assertEqual(r["prompt"], "hacer algo" + chr(10) * 2 + "con `x_y`")
+        self.assertEqual(len(r["advertencias"]), 1)
 
 
 class PuenteTest(unittest.TestCase):
@@ -76,6 +125,23 @@ class PuenteTest(unittest.TestCase):
         self.assertEqual(estado, 200)
         self.assertEqual(r["texto"], "# Titulo\n- comprar leche")
         self.assertEqual(r["modelo"], "falso:1b")
+
+    def test_prompt_endpoint(self):
+        token = self.vincular()
+        self.mateo.salida_prompt = "Objetivo: ver ui/Editor.kt"
+        orig = "Quiero que mires ui/Editor.kt con mucho detalle y cuidado porque es importante para todo"
+        estado, r = pedir(self.base, "/mateo/prompt", {"texto": orig}, token)
+        self.assertEqual(estado, 200)
+        self.assertEqual(r["prompt"], "Objetivo: ver ui/Editor.kt")
+        self.assertEqual((r["caracteres_antes"], r["caracteres_despues"]), (len(orig), 26))
+        self.assertEqual(r["advertencias"], [])
+        self.assertEqual(r["modelo"], "falso:1b")
+
+    def test_prompt_errores(self):
+        token = self.vincular()
+        self.assertEqual(pedir(self.base, "/mateo/prompt", {"texto": "x"})[0], 401)
+        self.assertEqual(pedir(self.base, "/mateo/prompt", {"texto": "falla"}, token)[0], 502)
+        self.assertEqual(pedir(self.base, "/mateo/prompt", {"otro": 1}, token)[0], 400)
 
     def test_sin_token_o_token_falso_da_401(self):
         self.assertEqual(pedir(self.base, "/mateo/organizar", {"texto": "x"})[0], 401)

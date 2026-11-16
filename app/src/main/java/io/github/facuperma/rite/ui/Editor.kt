@@ -60,7 +60,12 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.facuperma.rite.datos.Nota
 import io.github.facuperma.rite.datos.Version
+import io.github.facuperma.rite.red.ResultadoPrompt
+import io.github.facuperma.rite.red.esVersionPrompt
 import io.github.facuperma.rite.red.separarTitulo
+import io.github.facuperma.rite.red.textoEstimacion
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -96,7 +101,9 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
     var etiquetaNueva by remember { mutableStateOf("") }
 
     var estadoMateo by remember { mutableStateOf<EstadoMateo?>(null) }
+    var estadoPrompt by remember { mutableStateOf<EstadoPrompt?>(null) }
     var verVersiones by remember { mutableStateOf(false) }
+    val portapapeles = LocalClipboardManager.current
     val alcance = rememberCoroutineScope()
     val versiones by vm.versiones(id).collectAsState(initial = emptyList())
 
@@ -154,6 +161,15 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                                 )
                             }
                         }) { Text("Mateo") }
+                        TextButton(onClick = {
+                            estadoPrompt = EstadoPrompt.Cargando
+                            alcance.launch {
+                                estadoPrompt = vm.armarPromptClaude(id, titulo, cuerpo.text).fold(
+                                    onSuccess = { EstadoPrompt.Listo(it) },
+                                    onFailure = { EstadoPrompt.Error(it.message ?: "Error desconocido") },
+                                )
+                            }
+                        }) { Text("Prompt para Claude") }
                         if (versiones.isNotEmpty()) {
                             TextButton(onClick = { verVersiones = true }) { Text("Versiones (${versiones.size})") }
                         }
@@ -281,6 +297,53 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
         )
     }
 
+    when (val p = estadoPrompt) {
+        null -> {}
+        EstadoPrompt.Cargando -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Mateo está armando el prompt…") },
+            text = { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(28.dp)); Text("  La primera vez puede tardar un minuto.") } },
+            confirmButton = {},
+        )
+        is EstadoPrompt.Error -> AlertDialog(
+            onDismissRequest = { estadoPrompt = null },
+            title = { Text("No se pudo") },
+            text = { Text(p.msg) },
+            confirmButton = { TextButton(onClick = { estadoPrompt = null }) { Text("Cerrar") } },
+        )
+        is EstadoPrompt.Listo -> {
+            var editado by remember(p) { mutableStateOf(p.resultado.prompt) }
+            AlertDialog(
+                onDismissRequest = { estadoPrompt = null },
+                title = { Text("Prompt para Claude Code") },
+                text = {
+                    Column {
+                        Text(
+                            textoEstimacion(p.resultado.caracteresAntes, editado.length),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text("No se envió nada a Claude. Podés editarlo antes de copiarlo.", style = MaterialTheme.typography.bodySmall)
+                        p.resultado.advertencias.forEach {
+                            Text("⚠ $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                        OutlinedTextField(
+                            value = editado,
+                            onValueChange = { editado = it },
+                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 160.dp, max = 340.dp),
+                        )
+                    }
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(onClick = { portapapeles.setText(AnnotatedString(editado)) }) { Text("Copiar") }
+                        TextButton(onClick = { alcance.launch { vm.guardarPrompt(id, editado) }; estadoPrompt = null }) { Text("Guardar versión") }
+                    }
+                },
+                dismissButton = { TextButton(onClick = { estadoPrompt = null }) { Text("Cerrar") } },
+            )
+        }
+    }
+
     if (verVersiones) {
         AlertDialog(
             onDismissRequest = { verVersiones = false },
@@ -290,7 +353,7 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                     items(versiones, key = { it.id }) { v ->
                         Column(Modifier.padding(vertical = 6.dp)) {
                             val quien = when (v.origen) {
-                                Version.MATEO -> "Mateo"
+                                Version.MATEO -> if (esVersionPrompt(v.metaJson)) "Prompt" else "Mateo"
                                 Version.CLAUDE -> "Claude"
                                 else -> "Tuya"
                             }
@@ -304,6 +367,12 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
             confirmButton = { TextButton(onClick = { verVersiones = false }) { Text("Cerrar") } },
         )
     }
+}
+
+sealed interface EstadoPrompt {
+    data object Cargando : EstadoPrompt
+    data class Listo(val resultado: ResultadoPrompt) : EstadoPrompt
+    data class Error(val msg: String) : EstadoPrompt
 }
 
 sealed interface EstadoMateo {

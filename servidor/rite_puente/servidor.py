@@ -126,7 +126,7 @@ class Manejador(BaseHTTPRequestHandler):
                 self._responder(403, {"error": "Codigo incorrecto o vencido"})
             else:
                 self._responder(200, {"token": token})
-        elif self.path == "/mateo/organizar":
+        elif self.path in ("/mateo/organizar", "/mateo/prompt"):
             if self._dispositivo() is None:
                 return
             d = self._leer_json()
@@ -137,6 +137,9 @@ class Manejador(BaseHTTPRequestHandler):
                 self._responder(400, {"error": "Falta el campo texto"})
                 return
             try:
+                if self.path == "/mateo/prompt":
+                    self._responder(200, self.server.mateo.armar_prompt(texto))
+                    return
                 salida = self.server.mateo.organizar(texto)
             except MateoError as e:
                 self._responder(502, {"error": str(e)})
