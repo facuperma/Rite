@@ -18,5 +18,12 @@ python -m venv .venv && .venv\Scripts\pip install cryptography
 ```
 Datos en `%LOCALAPPDATA%\Rite` (certificado, base de dispositivos, proyectos.json). Solo acepta clientes de red local, loopback y Tailscale. Necesita Ollama con `qwen3:8b`. Para el emulador: `servir --escuchar 127.0.0.1 --direccion 10.0.2.2`.
 
+### Arranque automatico del puente (Windows)
+```
+powershell -File servidor\servicio\instalar_autoinicio.ps1   # crea un acceso directo en Inicio: el puente arranca solo, sin ventana
+powershell -File servidor\servicio\quitar_autoinicio.ps1     # lo quita
+```
+Registro en `%LOCALAPPDATA%\Rite\puente.log` (sin codigos de vinculacion; el arranque automatico usa `--sin-codigo`). Para vincular un celular nuevo: `python -m rite_puente vincular --direccion <IP>`. Hay que tener Tailscale y Ollama arrancados para usar Rite fuera de casa y con Mateo.
+
 ## App
 `gradlew.bat assembleDebug` y `gradlew.bat testDebugUnitTest` (en esta PC con `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:/gtvtmp`). En la app: menu → Ajustes y PC vinculada → pegar el enlace.
