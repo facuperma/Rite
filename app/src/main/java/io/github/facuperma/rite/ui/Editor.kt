@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -173,7 +174,7 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
             )
         },
         bottomBar = {
-            Column(Modifier.imePadding().background(fondo).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.navigationBarsPadding().imePadding().background(fondo).padding(horizontal = 12.dp, vertical = 8.dp)) {
                 LazyRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                     items(etiquetas, key = { it.id }) { e ->
                         AssistChip(onClick = { vm.desetiquetar(id, e.id) }, label = { Text("#${e.nombre}  ✕") })
