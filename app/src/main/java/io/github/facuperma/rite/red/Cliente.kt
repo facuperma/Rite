@@ -20,7 +20,25 @@ import javax.net.ssl.X509TrustManager
 class ErrorPuente(mensaje: String, val codigo: Int = 0) : Exception(mensaje)
 
 data class Vinculo(val host: String, val puerto: Int, val huella: String, val token: String?)
-data class EstadoPuente(val mateo: Boolean, val modelo: String)
+data class EstadoPuente(
+    val mateo: Boolean,
+    val modelo: String,
+    /** true = el servidor es B.O.B. (sincroniza notas); false = puente Python viejo (solo Mateo). */
+    val notas: Boolean = false,
+    val cursor: Long = 0,
+    val servidor: String = "",
+    val arturo: Boolean = false,
+)
+
+/** Lo que Sincronizador necesita del servidor (se reemplaza por uno falso en las pruebas). */
+interface ServidorSync {
+    suspend fun estado(): EstadoPuente
+    /** GET /sync. Si el cursor quedo viejo lanza ErrorPuente con codigo 410. */
+    suspend fun bajar(desde: Long, limite: Int): JSONObject
+    suspend fun subir(cuerpo: JSONObject): JSONObject
+}
+
+data class RespuestaCharla(val texto: String, val modelo: String)
 
 fun huellaSha256(der: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(der).joinToString("") { "%02x".format(it) }
@@ -39,7 +57,7 @@ class ConfianzaPorHuella(private val esperada: String) : X509TrustManager {
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 }
 
-class Cliente(private val v: Vinculo) {
+class Cliente(private val v: Vinculo) : ServidorSync {
     private val http: OkHttpClient = run {
         val confianza = ConfianzaPorHuella(v.huella)
         val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf(confianza), SecureRandom()) }
@@ -79,10 +97,37 @@ class Cliente(private val v: Vinculo) {
     suspend fun vincular(codigo: String, nombre: String): String =
         llamar("/vincular", JSONObject().put("codigo", codigo).put("nombre", nombre), null).getString("token")
 
-    suspend fun estado(): EstadoPuente {
+    override suspend fun estado(): EstadoPuente {
         val o = llamar("/estado", null, v.token)
-        return EstadoPuente(o.optBoolean("mateo"), o.optString("modelo"))
+        return EstadoPuente(
+            mateo = o.optBoolean("mateo"),
+            modelo = o.optString("modelo"),
+            notas = o.optBoolean("notas"),
+            cursor = o.optLong("cursor"),
+            servidor = o.optString("servidor"),
+            arturo = o.optBoolean("arturo"),
+        )
     }
+
+    override suspend fun bajar(desde: Long, limite: Int): JSONObject = llamar("/sync?desde=$desde&limite=$limite", null, v.token)
+
+    override suspend fun subir(cuerpo: JSONObject): JSONObject = llamar("/sync", cuerpo, v.token)
+
+    /** Charla con Mateo (B.O.B.): la respuesta no se guarda en la app; queda en el chat de Mateo en la PC. */
+    suspend fun charlar(texto: String): RespuestaCharla {
+        val o = llamar("/mateo/charlar", JSONObject().put("texto", texto), v.token)
+        return RespuestaCharla(o.getString("texto"), o.optString("modelo"))
+    }
+
+    /** Arturo repasa el tema que se charlo con Mateo (tarda ~30-60 s). */
+    suspend fun repasarConArturo(): RespuestaCharla {
+        val o = llamar("/arturo/repasar", JSONObject(), v.token)
+        return RespuestaCharla(o.getString("texto"), o.optString("modelo"))
+    }
+
+    /** Abre VS Code en la PC con el prompt escrito (no lo envia). Devuelve el aviso del servidor. */
+    suspend fun enviarAClaudeCode(prompt: String): String =
+        llamar("/claude/enviar", JSONObject().put("prompt", prompt), v.token).optString("aviso", "Listo.")
 
     suspend fun organizar(texto: String, pista: String = ""): RespuestaOrganizar =
         parsearOrganizar(llamar("/mateo/organizar", JSONObject().put("texto", texto).put("pista", pista), v.token))

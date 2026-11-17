@@ -12,6 +12,8 @@ import io.github.facuperma.rite.datos.Version
 import io.github.facuperma.rite.red.Almacen
 import io.github.facuperma.rite.red.Cliente
 import io.github.facuperma.rite.red.Enlace
+import io.github.facuperma.rite.red.ResultadoSync
+import io.github.facuperma.rite.red.Sincronizador
 import io.github.facuperma.rite.red.ErrorPuente
 import io.github.facuperma.rite.red.EstadoPuente
 import io.github.facuperma.rite.red.META_PROMPT
@@ -19,6 +21,8 @@ import io.github.facuperma.rite.red.RespuestaOrganizar
 import io.github.facuperma.rite.red.ResultadoPrompt
 import io.github.facuperma.rite.red.Vinculo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +32,21 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Estado de la sincronizacion con la PC (B.O.B.), para el indicador de la lista y los ajustes. */
+sealed interface EstadoSync {
+    data object SinVincular : EstadoSync
+    data object Sincronizando : EstadoSync
+    data class AlDia(val ultimo: Long, val resultado: ResultadoSync) : EstadoSync
+    /** La PC no responde: la app sigue andando con lo que tiene y reintenta sola. */
+    data class SinConexion(val motivo: String) : EstadoSync
+    /** El servidor es el puente Python viejo (solo Mateo, sin notas). */
+    data object ServidorViejo : EstadoSync
+    data class Fallo(val mensaje: String) : EstadoSync
+}
+
+/** Un mensaje de la charla con Mateo (solo en memoria: no se guarda nada en el celular). */
+data class MensajeCharla(val deMateo: Boolean, val texto: String, val modelo: String = "")
 
 /** Que lista se esta mirando. */
 data class Filtro(
@@ -60,6 +79,98 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
     private val almacen = Almacen(app)
     val vinculo = MutableStateFlow(almacen.leer())
     val ajustesAbiertos = MutableStateFlow(false)
+    val charlaAbierta = MutableStateFlow(false)
+
+    // ---- Sincronizacion ----
+    val estadoSync = MutableStateFlow<EstadoSync>(if (almacen.leer()?.token != null) EstadoSync.SinConexion("Todavía no se sincronizó") else EstadoSync.SinVincular)
+    private val candado = Mutex()
+
+    /** Sincroniza con la PC si hay una vinculada. Si ya hay una en curso, no hace nada. Nunca lanza. */
+    fun sincronizar() {
+        viewModelScope.launch { sincronizarYEsperar() }
+    }
+
+    suspend fun sincronizarYEsperar() {
+        val v = vinculo.value?.takeIf { it.token != null }
+        if (v == null) {
+            estadoSync.value = EstadoSync.SinVincular
+            return
+        }
+        if (!candado.tryLock()) return
+        try {
+            estadoSync.value = EstadoSync.Sincronizando
+            val r = Sincronizador(BaseRite.obtener(getApplication()), Cliente(v), android.os.Build.MODEL ?: "Celular").sincronizar()
+            estadoSync.value = if (!r.soportado) EstadoSync.ServidorViejo else EstadoSync.AlDia(System.currentTimeMillis(), r)
+        } catch (e: ErrorPuente) {
+            estadoSync.value = when {
+                e.codigo == 401 -> EstadoSync.Fallo("La PC no reconoce este celular: vinculalo de nuevo en Ajustes.")
+                e.codigo != 0 -> EstadoSync.Fallo(e.message ?: "Error ${e.codigo}")
+                else -> EstadoSync.SinConexion(e.message ?: "Sin conexión")
+            }
+        } catch (e: Exception) {
+            estadoSync.value = EstadoSync.Fallo(e.message ?: "Error al sincronizar")
+        } finally {
+            candado.unlock()
+        }
+    }
+
+    // ---- Charla con Mateo (B.O.B.) ----
+    val charla = MutableStateFlow<List<MensajeCharla>>(emptyList())
+    val charlando = MutableStateFlow(false)
+
+    /** Manda un mensaje a Mateo. La respuesta se muestra pero NO se guarda sola: el usuario decide si la copia o la guarda como nota. */
+    suspend fun charlar(texto: String): String? {
+        val v = vinculo.value?.takeIf { it.token != null } ?: return "Primero vinculá la PC en Ajustes"
+        val limpio = texto.trim()
+        if (limpio.isEmpty()) return null
+        charla.value = charla.value + MensajeCharla(false, limpio)
+        charlando.value = true
+        return try {
+            val r = Cliente(v).charlar(limpio)
+            charla.value = charla.value + MensajeCharla(true, r.texto, r.modelo)
+            null
+        } catch (e: ErrorPuente) {
+            e.message
+        } finally {
+            charlando.value = false
+        }
+    }
+
+    suspend fun repasarConArturo(): String? {
+        val v = vinculo.value?.takeIf { it.token != null } ?: return "Primero vinculá la PC en Ajustes"
+        charlando.value = true
+        return try {
+            val r = Cliente(v).repasarConArturo()
+            charla.value = charla.value + MensajeCharla(true, r.texto, r.modelo)
+            null
+        } catch (e: ErrorPuente) {
+            e.message
+        } finally {
+            charlando.value = false
+        }
+    }
+
+    fun limpiarCharla() {
+        charla.value = emptyList()
+    }
+
+    /** Crea una nota con el texto (acción explícita del usuario: «Guardar como nota»). */
+    fun notaDesdeTexto(texto: String) {
+        viewModelScope.launch {
+            val (t, c) = io.github.facuperma.rite.red.separarTitulo(texto)
+            repo.crearNota(carpetaId = filtro.value.carpetaId, titulo = t, cuerpo = c)
+        }
+    }
+
+    /** Abre Claude Code en la PC con el prompt escrito (no lo envia). Devuelve el aviso o el error. */
+    suspend fun enviarAClaudeCode(prompt: String): String {
+        val v = vinculo.value?.takeIf { it.token != null } ?: return "Primero vinculá la PC en Ajustes"
+        return try {
+            Cliente(v).enviarAClaudeCode(prompt)
+        } catch (e: ErrorPuente) {
+            e.message ?: "No se pudo"
+        }
+    }
 
     /** Vincula con el enlace que imprime el puente. Devuelve el mensaje de error, o null si salió bien. */
     suspend fun vincular(textoEnlace: String): String? {
@@ -70,6 +181,7 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
             val v = sin.copy(token = token)
             almacen.guardar(v)
             vinculo.value = v
+            sincronizar()
             null
         } catch (ex: ErrorPuente) {
             ex.message
@@ -79,6 +191,7 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
     fun desvincular() {
         almacen.borrar()
         vinculo.value = null
+        estadoSync.value = EstadoSync.SinVincular
     }
 
     suspend fun estadoPuente(): Result<EstadoPuente> = runCatching {
@@ -125,6 +238,14 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { repo.limpiarPapeleraVieja() }
+        // Sincroniza al abrir y despues cada 5 minutos (cada minuto si la PC no estaba): sin conexion la app sigue andando igual.
+        viewModelScope.launch {
+            delay(1_000)
+            while (true) {
+                sincronizarYEsperar()
+                delay(if (estadoSync.value is EstadoSync.SinConexion) 60_000 else 300_000)
+            }
+        }
     }
 
     fun mirar(f: Filtro) {
@@ -148,6 +269,7 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
             val n = repo.nota(id) ?: return@launch
             val sinEtiquetas = repo.etiquetasDe(id).first().isEmpty()
             if (n.titulo.isBlank() && n.cuerpo.isBlank() && sinEtiquetas) repo.eliminarDefinitivo(id)
+            sincronizarYEsperar() // al cerrar una nota, lo escrito sube enseguida
         }
     }
 
@@ -159,10 +281,11 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
     fun fijar(id: Long, v: Boolean) = viewModelScope.launch { repo.fijar(id, v) }
     fun pintar(id: Long, c: Int) = viewModelScope.launch { repo.pintar(id, c) }
     fun mover(id: Long, carpeta: Long?) = viewModelScope.launch { repo.mover(id, carpeta) }
-    fun aPapelera(id: Long) = viewModelScope.launch { repo.aPapelera(id) }
-    fun restaurar(id: Long) = viewModelScope.launch { repo.restaurar(id) }
-    fun eliminar(id: Long) = viewModelScope.launch { repo.eliminarDefinitivo(id) }
-    fun vaciarPapelera() = viewModelScope.launch { repo.vaciarPapelera() }
+    // Papelera y borrados suben enseguida (no esperan al proximo ciclo).
+    fun aPapelera(id: Long) = viewModelScope.launch { repo.aPapelera(id); sincronizarYEsperar() }
+    fun restaurar(id: Long) = viewModelScope.launch { repo.restaurar(id); sincronizarYEsperar() }
+    fun eliminar(id: Long) = viewModelScope.launch { repo.eliminarDefinitivo(id); sincronizarYEsperar() }
+    fun vaciarPapelera() = viewModelScope.launch { repo.vaciarPapelera(); sincronizarYEsperar() }
     fun etiquetar(id: Long, nombre: String) = viewModelScope.launch { repo.etiquetar(id, nombre) }
     fun desetiquetar(id: Long, etiqueta: Long) = viewModelScope.launch { repo.desetiquetar(id, etiqueta) }
 

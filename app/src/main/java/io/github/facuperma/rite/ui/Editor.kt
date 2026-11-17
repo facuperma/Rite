@@ -106,6 +106,8 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
     var estadoMateo by remember { mutableStateOf<EstadoMateo?>(null) }
     var estadoPrompt by remember { mutableStateOf<EstadoPrompt?>(null) }
     var verVersiones by remember { mutableStateOf(false) }
+    var confirmarClaude by remember { mutableStateOf<String?>(null) }
+    var avisoClaude by remember { mutableStateOf<String?>(null) }
     val portapapeles = LocalClipboardManager.current
     val alcance = rememberCoroutineScope()
     val versiones by vm.versiones(id).collectAsState(initial = emptyList())
@@ -409,12 +411,36 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                 confirmButton = {
                     Row {
                         TextButton(onClick = { portapapeles.setText(AnnotatedString(editado)) }) { Text("Copiar") }
+                        TextButton(onClick = { confirmarClaude = editado }) { Text("A Claude Code") }
                         TextButton(onClick = { alcance.launch { vm.guardarPrompt(id, editado) }; estadoPrompt = null }) { Text("Guardar versión") }
                     }
                 },
                 dismissButton = { TextButton(onClick = { estadoPrompt = null }) { Text("Cerrar") } },
             )
         }
+    }
+
+    confirmarClaude?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = { confirmarClaude = null },
+            title = { Text("Abrir en Claude Code") },
+            text = { Text("Se abre Claude Code en la PC con este prompt ya escrito. No se envía: lo revisás y lo mandás vos desde la PC.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmarClaude = null
+                    alcance.launch { avisoClaude = vm.enviarAClaudeCode(prompt) }
+                }) { Text("Abrir en la PC") }
+            },
+            dismissButton = { TextButton(onClick = { confirmarClaude = null }) { Text("Cancelar") } },
+        )
+    }
+    avisoClaude?.let { aviso ->
+        AlertDialog(
+            onDismissRequest = { avisoClaude = null },
+            title = { Text("Claude Code") },
+            text = { Text(aviso) },
+            confirmButton = { TextButton(onClick = { avisoClaude = null }) { Text("Listo") } },
+        )
     }
 
     if (verVersiones) {
@@ -427,6 +453,7 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                         Column(Modifier.padding(vertical = 6.dp)) {
                             val quien = when (v.origen) {
                                 Version.MATEO -> if (esVersionPrompt(v.metaJson)) "Prompt" else "Mateo"
+                                Version.CONFLICTO -> "Otra versión (conflicto)"
                                 Version.CLAUDE -> "Claude"
                                 else -> "Tuya"
                             }

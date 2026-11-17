@@ -37,6 +37,9 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+    sourceSets {
+        getByName("debug").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 ksp {
@@ -62,6 +65,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
 
+    testImplementation("androidx.room:room-testing:$room")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.13")
     testImplementation("androidx.test:core:1.6.1")

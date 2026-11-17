@@ -51,7 +51,7 @@ class RepositorioTest {
         assertEquals(1_005_000L, repo.nota(id)!!.editada)
 
         ahora += 5_000
-        repo.guardar(repo.nota(id)!!.copy(color = 3))
+        repo.pintar(id, 3)
         val tras = repo.nota(id)!!
         assertEquals("fecha no cambia si solo cambia el color", 1_005_000L, tras.editada)
         assertEquals(3, tras.color)

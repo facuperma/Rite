@@ -24,21 +24,19 @@ class Repositorio(
     suspend fun crearNota(carpetaId: Long? = null, titulo: String = "", cuerpo: String = ""): Long {
         val ahora = reloj()
         return base.notas().insertar(
-            Nota(carpetaId = carpetaId, titulo = titulo, cuerpo = cuerpo, creada = ahora, editada = ahora),
+            Nota(carpetaId = carpetaId, titulo = titulo, cuerpo = cuerpo, creada = ahora, editada = ahora, actualizado = ahora),
         )
     }
 
-    /** Guarda cambios de contenido y sella la fecha de edicion. Si no cambio nada, no toca la fecha. */
+    /**
+     * Guarda el contenido (titulo y cuerpo) y sella la fecha de edicion. El resto de los campos se toma de lo que hay en la base,
+     * no del objeto que llega (puede estar viejo si hubo un sync en el medio). Si no cambio nada, no toca nada.
+     */
     suspend fun guardar(nota: Nota) {
         val actual = base.notas().obtener(nota.id) ?: return
-        val cambio = actual.titulo != nota.titulo || actual.cuerpo != nota.cuerpo
-        base.notas().actualizar(
-            nota.copy(
-                creada = actual.creada,
-                borradaEn = actual.borradaEn,
-                editada = if (cambio) reloj() else actual.editada,
-            ),
-        )
+        if (actual.titulo == nota.titulo && actual.cuerpo == nota.cuerpo) return
+        val ahora = reloj()
+        base.notas().actualizar(actual.copy(titulo = nota.titulo, cuerpo = nota.cuerpo, editada = ahora, actualizado = ahora, sucio = true))
     }
 
     suspend fun fijar(id: Long, fijada: Boolean) = cambiar(id) { it.copy(fijada = fijada) }
@@ -49,24 +47,32 @@ class Repositorio(
 
     private suspend fun cambiar(id: Long, f: (Nota) -> Nota) {
         val n = base.notas().obtener(id) ?: return
-        base.notas().actualizar(f(n))
+        base.notas().actualizar(f(n).copy(actualizado = reloj(), sucio = true))
     }
+
+    private suspend fun lapidaDe(n: Nota) =
+        base.lapidas().insertar(
+            Lapida(n.uuid, "nota", n.titulo, n.cuerpo, n.baseRev, n.creada, n.editada, reloj()),
+        )
 
     suspend fun eliminarDefinitivo(id: Long) {
         base.withTransaction {
+            base.notas().obtener(id)?.let { lapidaDe(it) }
             base.notas().borrarDefinitivo(id)
-            base.etiquetas().limpiarHuerfanas()
+            limpiarHuerfanas()
         }
     }
 
     suspend fun vaciarPapelera(): Int = base.withTransaction {
-        base.notas().vaciarPapelera().also { base.etiquetas().limpiarHuerfanas() }
+        base.notas().enPapelera().forEach { lapidaDe(it) }
+        base.notas().vaciarPapelera().also { limpiarHuerfanas() }
     }
 
     /** Borra de verdad lo que lleva mas de 30 dias en la papelera. Devuelve cuantas notas se fueron. */
     suspend fun limpiarPapeleraVieja(): Int = base.withTransaction {
-        base.notas().vaciarPapeleraAnteriorA(reloj() - DIAS_PAPELERA * DIA_MS)
-            .also { base.etiquetas().limpiarHuerfanas() }
+        val limite = reloj() - DIAS_PAPELERA * DIA_MS
+        base.notas().papeleraAnteriorA(limite).forEach { lapidaDe(it) }
+        base.notas().vaciarPapeleraAnteriorA(limite).also { limpiarHuerfanas() }
     }
 
     // ---- Carpetas ----
@@ -75,18 +81,25 @@ class Repositorio(
     suspend fun crearCarpeta(nombre: String, color: Int = 0): Long {
         val limpio = nombre.trim()
         require(limpio.isNotEmpty()) { "La carpeta necesita un nombre" }
-        return base.carpetas().insertar(Carpeta(nombre = limpio, color = color, orden = base.carpetas().siguienteOrden()))
+        return base.carpetas().insertar(
+            Carpeta(nombre = limpio, color = color, orden = base.carpetas().siguienteOrden(), actualizado = reloj()),
+        )
     }
 
     suspend fun renombrarCarpeta(id: Long, nombre: String) {
         val limpio = nombre.trim()
         require(limpio.isNotEmpty()) { "La carpeta necesita un nombre" }
         val c = base.carpetas().obtener(id) ?: return
-        base.carpetas().actualizar(c.copy(nombre = limpio))
+        base.carpetas().actualizar(c.copy(nombre = limpio, actualizado = reloj(), sucio = true))
     }
 
     /** Las notas de la carpeta no se borran: pasan a "sin carpeta". */
-    suspend fun borrarCarpeta(id: Long) = base.carpetas().borrar(id)
+    suspend fun borrarCarpeta(id: Long) {
+        base.withTransaction {
+            base.carpetas().obtener(id)?.let { base.lapidas().insertar(Lapida(it.uuid, "carpeta", it.nombre, actualizado = reloj())) }
+            base.carpetas().borrar(id)
+        }
+    }
 
     // ---- Etiquetas ----
     fun etiquetas(): Flow<List<Etiqueta>> = base.etiquetas().observar()
@@ -96,15 +109,25 @@ class Repositorio(
         val limpio = nombre.trim().trimStart('#').trim()
         if (limpio.isEmpty()) return
         base.withTransaction {
-            val id = base.etiquetas().buscar(limpio)?.id ?: base.etiquetas().insertar(Etiqueta(nombre = limpio))
-            base.etiquetas().asignar(NotaEtiqueta(notaId, id))
+            val ahora = reloj()
+            val id = base.etiquetas().buscar(limpio)?.id ?: base.etiquetas().insertar(Etiqueta(nombre = limpio, actualizado = ahora))
+            base.etiquetas().asignar(NotaEtiqueta(notaId, id, actualizado = ahora, quitada = false, sucio = true))
         }
     }
 
     suspend fun desetiquetar(notaId: Long, etiquetaId: Long) {
         base.withTransaction {
-            base.etiquetas().quitar(notaId, etiquetaId)
-            base.etiquetas().limpiarHuerfanas()
+            val r = base.etiquetas().relacion(notaId, etiquetaId)
+            if (r != null) base.etiquetas().asignar(r.copy(quitada = true, actualizado = reloj(), sucio = true))
+            limpiarHuerfanas()
+        }
+    }
+
+    /** Borra las etiquetas sin ninguna nota (y avisa al servidor con una lapida). Va dentro de una transaccion. */
+    private suspend fun limpiarHuerfanas() {
+        for (e in base.etiquetas().huerfanas()) {
+            base.lapidas().insertar(Lapida(e.uuid, "etiqueta", e.nombre, actualizado = reloj()))
+            base.etiquetas().borrar(e.id)
         }
     }
 

@@ -61,6 +61,17 @@ fun PantallaAjustes(vm: RiteViewModel) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val e by vm.estadoSync.collectAsState()
+                Text(
+                    when (e) {
+                        EstadoSync.ServidorViejo -> "Servidor: puente Python (puerto ${v.puerto}). Solo Mateo; no sincroniza notas."
+                        is EstadoSync.AlDia -> "Servidor: B.O.B. (puerto ${v.puerto}). Las notas se sincronizan."
+                        else -> "Servidor: puerto ${v.puerto} (${if (v.puerto == 8787) "puente Python" else "B.O.B."})"
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(describirSync(e), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                Button(enabled = e !is EstadoSync.Sincronizando, onClick = { vm.sincronizar() }, modifier = Modifier.padding(top = 8.dp)) { Text("Sincronizar ahora") }
                 Row(Modifier.padding(top = 12.dp)) {
                     Button(enabled = !ocupado, onClick = {
                         ocupado = true
@@ -79,8 +90,8 @@ fun PantallaAjustes(vm: RiteViewModel) {
                 }
             } else {
                 Text(
-                    "En la PC corré «python -m rite_puente vincular» (o «servir») y pegá acá el enlace que empieza con rite://. " +
-                        "Vale 10 minutos y se usa una sola vez.",
+                    "En la PC, en B.O.B. (Notas → Vincular celular) o con «python -m rite_puente vincular» del puente viejo, copiá el enlace que empieza con rite:// y pegalo acá. " +
+                        "Vale 10 minutos y se usa una sola vez. El enlace trae el puerto: 8788 es B.O.B. y 8787 el puente Python; la app recuerda con cuál quedó vinculada.",
                     modifier = Modifier.padding(top = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
