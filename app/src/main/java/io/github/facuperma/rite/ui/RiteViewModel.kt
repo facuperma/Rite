@@ -103,7 +103,7 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
         val v = vinculoActivo()
         val texto = textoDe(titulo, cuerpo)
         if (texto.isEmpty()) throw ErrorPuente("La nota está vacía")
-        Cliente(v).armarPrompt(texto, pista)
+        Cliente(v).armarPrompt(texto, pista, titulo.trim())
     }
 
     /** Guarda la respuesta de Mateo como versión, solo cuando el usuario lo pide (sin duplicados). */

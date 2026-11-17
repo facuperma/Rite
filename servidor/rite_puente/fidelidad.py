@@ -184,11 +184,27 @@ def clausulas(texto: str) -> list[str]:
     return out
 
 
-def omitidas(original: str, prompt: str, maximo: int = 3) -> list[str]:
-    """Frases del original cuyo contenido casi no aparece en el prompt (se dejaron afuera)."""
+def detectar_titulo(texto: str) -> str:
+    """Primera linea si parece un titulo (corta, sin punto final y seguida de linea en blanco o de mas texto)."""
+    lineas = texto.strip().splitlines()
+    if len(lineas) < 2:
+        return ""
+    t = lineas[0].strip()
+    if 0 < len(t) <= 80 and not re.search(r"[.!?;:]$", t) and (not lineas[1].strip() or len(lineas) > 2):
+        return t
+    return ""
+
+
+def _sin(cl: list[str], excluir) -> list[str]:
+    ex = {re.sub(r"\W+", "", e.lower()) for e in excluir if e}
+    return [c for c in cl if re.sub(r"\W+", "", c.lower()) not in ex]
+
+
+def omitidas(original: str, prompt: str, maximo: int = 3, excluir=()) -> list[str]:
+    """Frases del original cuyo contenido casi no aparece en el prompt (se dejaron afuera). `excluir`: ej. el titulo."""
     en_prompt = _raices(prompt)
     res = []
-    for c in clausulas(original):
+    for c in _sin(clausulas(original), excluir):
         r = _raices(c)
         if not r:
             continue
@@ -197,6 +213,63 @@ def omitidas(original: str, prompt: str, maximo: int = 3) -> list[str]:
         if len(res) >= maximo:
             break
     return res
+
+
+def _secuencia(texto: str) -> list[str]:
+    return [_norm(w)[:5] for w in re.findall(r"[^\W_]{3,}", texto, re.U) if _norm(w) not in _VACIAS and not w.isdigit()]
+
+
+def _pares(texto: str) -> set:
+    out = set()
+    for c in clausulas(texto):
+        s = _secuencia(c)
+        out |= set(zip(s, s[1:]))
+    return out
+
+
+def recortadas(original: str, prompt: str, maximo: int = 3, excluir=()) -> list[str]:
+    """Frases cortas (<=6 palabras de contenido) que el prompt conserva a medias: les falta una palabra del medio.
+
+    Usa bigramas contiguos de palabras de contenido: si la frase esta presente pero un bigrama no aparece en el prompt, se recorto.
+    """
+    en_prompt = _raices(prompt)
+    pares = _pares(prompt)
+    res = []
+    for c in _sin(clausulas(original), excluir):
+        s = _secuencia(c)
+        if len(s) < 2 or len(s) > 6:
+            continue
+        pres = len(set(s) & en_prompt) / len(set(s))
+        if 0.34 <= pres < 1 and any(p not in pares for p in zip(s, s[1:])):
+            res.append(c.rstrip(".;"))
+        if len(res) >= maximo:
+            break
+    return res
+
+
+def restaurar(prompt: str, frase: str) -> str:
+    """Reemplaza, en el prompt, el trozo que mas se parece a `frase` por la frase original (o la agrega al final)."""
+    objetivo = _raices(frase)
+    mejor, mejor_pct = None, 0.0
+    lineas = prompt.split("\n")
+    for i, linea in enumerate(lineas):
+        partes = re.split(r"(?<=[.;])\s+", linea)
+        for j, parte in enumerate(partes):
+            r = _raices(parte)
+            if not r or not objetivo:
+                continue
+            pct = len(r & objetivo) / len(objetivo)
+            if pct > mejor_pct:
+                mejor, mejor_pct = (i, j), pct
+    if mejor is None or mejor_pct < 0.5:
+        return prompt.rstrip() + "\n" + frase
+    i, j = mejor
+    partes = re.split(r"(?<=[.;])\s+", lineas[i])
+    previo = re.match(r"^\s*(?:[-*•]\s+)?", partes[j]).group(0) if j == 0 else ""
+    partes[j] = previo + frase.rstrip(".;") + ("." if partes[j].rstrip().endswith(".") else "")
+    lineas[i] = " ".join(partes)
+    return "\n".join(lineas)
+
 
 
 def comparte_contenido(pregunta: str, nota: str, minimo: int = 1) -> bool:

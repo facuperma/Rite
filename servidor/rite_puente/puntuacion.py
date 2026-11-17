@@ -21,6 +21,7 @@ class Puntaje:
     inventadas: list = field(default_factory=list)
     estructura: bool = True
     omitidas: list = field(default_factory=list)
+    recortadas: list = field(default_factory=list)
 
     @property
     def largo_ok(self) -> bool:
@@ -28,12 +29,12 @@ class Puntaje:
 
     @property
     def pasa(self) -> bool:
-        return self.largo_ok and not self.faltan and not self.inventadas and self.estructura
+        return self.largo_ok and not self.faltan and not self.inventadas and self.estructura and not self.recortadas
 
     @property
     def clave(self) -> tuple:
         """Menor es mejor."""
-        return (bool(self.inventadas), not self.largo_ok, len(self.faltan), len(self.omitidas), not self.estructura, self.largo)
+        return (bool(self.inventadas), not self.largo_ok, len(self.faltan), len(self.recortadas), len(self.omitidas), not self.estructura, self.largo)
 
     def pistas(self, base_original: str = "la idea") -> list[str]:
         p = []
@@ -41,6 +42,8 @@ class Puntaje:
             p.append(f"NO uses estos terminos que no estan en {base_original}: " + ", ".join(self.inventadas) + ".")
         if self.faltan:
             p.append("Conserva tal cual: " + ", ".join(self.faltan) + ".")
+        if self.recortadas:
+            p.append("Conserva la frase tal cual, sin sacarle palabras: " + " | ".join(self.recortadas) + ".")
         if not self.largo_ok:
             p.append(f"Quedo demasiado largo ({self.largo} caracteres): acortalo mucho mas, solo lo esencial.")
         if not self.estructura:
@@ -55,7 +58,7 @@ class Puntaje:
         )
 
 
-def puntuar(original: str, candidato: str, limite: int, literales_de: str | None = None, estructura_prompt: bool = True) -> Puntaje:
+def puntuar(original: str, candidato: str, limite: int, literales_de: str | None = None, estructura_prompt: bool = True, titulo: str = "") -> Puntaje:
     """`limite`: largo maximo aceptable del candidato. `literales_de`: texto cuyos literales hay que conservar."""
     base = original if literales_de is None else literales_de
     return Puntaje(
@@ -63,7 +66,8 @@ def puntuar(original: str, candidato: str, limite: int, literales_de: str | None
         limite=limite,
         ratio=len(candidato) / max(1, len(original)),
         faltan=fidelidad.faltantes(base, candidato),
-        omitidas=fidelidad.omitidas(base, candidato),
+        omitidas=fidelidad.omitidas(base, candidato, excluir=[titulo]),
+        recortadas=fidelidad.recortadas(base, candidato, excluir=[titulo]),
         inventadas=fidelidad.invenciones(original, candidato),
         estructura=(not estructura_prompt) or candidato.strip().lower().startswith(CABECERAS_PROMPT[0]) or _alguna_cabecera(candidato),
     )

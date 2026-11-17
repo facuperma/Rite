@@ -28,6 +28,7 @@ NOTAS = [
  ("larga_estado", "Quiero rehacer la pantalla de Ajustes de Rite. Hoy en `ui/Ajustes.kt` hay solo un boton para vincular la PC y otro para desvincular, y se ve feo. La idea es tener secciones: PC vinculada (nombre, direccion, estado del puente con el indicador verde o rojo segun `estadoPuente()`), Apariencia (tema, tamaño de letra: chica, normal, grande), Papelera (dias para vaciar, hoy 30, con opciones 7, 14, 30, 60), Datos (exportar todo a un .zip, importar desde un .zip) y Acerca de (version de la app 1.0 y del puente). Todo tiene que guardarse en la tabla ajuste con claves `tema`, `fuente`, `papelera_dias`. Los textos en español rioplatense. No usar librerias nuevas ni cambiar la version de Room (2). El zip de exportacion tiene que contener un `notas.json` y una carpeta `adjuntos/` aunque este vacia. Importante: importar nunca debe pisar notas existentes con el mismo id sin preguntar, y hay que mostrar cuantas notas se importaron. Como no estoy seguro de si el zip va cifrado, dejalo para despues. Cuando termine tienen que pasar `testDebugUnitTest` y compilar `assembleDebug`."),
  ("tecnico_log", "El puente tira 'RemoteDisconnected: Remote end closed connection without response' en `test_prompt_endpoint` cuando Mateo falso tarda. Pasa solo a veces (1 de 5). Sospecho del `ThreadingHTTPServer` y `protocol_version = HTTP/1.1` con keep-alive en `servidor.py`: si el cliente cierra antes de que respondamos, `wfile.write` revienta. Probar con `Connection: close` en `_responder`. Medir antes y despues corriendo los tests 20 veces."),
  ("pocas_palabras", "Que Rite abra directo en la ultima nota editada."),
+ ("titulo_cable", "Ideas para Rite" + chr(10) * 2 + "mateo resume cada 10 mensajes. pasar notas a claude. comprar cable usb c. llamar al mecanico el jueves"),
  ("cable_usb", "mateo resume cada 10 mensajes. pasar notas a claude. comprar cable usb c. llamar al mecanico el jueves"),
  ("ux", "La barra de arriba del editor ya tiene muchos botones (Mateo, Prompt para Claude, Versiones, estrella, papelera) y en pantallas chicas se cortan. Quiero agrupar Mateo y Prompt en un menu desplegable con el icono de varita, dejando afuera solo la estrella y la papelera. Los textos de las opciones del menu: «Organizar con Mateo» y «Prompt para Claude». Versiones va dentro de un menu de tres puntos."),
 ]
@@ -46,9 +47,13 @@ def evaluar(nota, r):
         sug_ok = False
     # nada se pierde en silencio: lo que falta del original tiene que estar en dejado_afuera
     afuera = r.get("dejado_afuera", [])
-    perdidas = [c for c in fidelidad.omitidas(nota, p) if c not in afuera]
+    perdidas = [c for c in fidelidad.omitidas(nota, p, excluir=[fidelidad.detectar_titulo(nota)]) if c not in afuera]
     if nota.startswith("mateo resume") and "cable" not in p and not any("cable" in c for c in afuera):
         perdidas.append("cable usb c")
+    if nota.startswith("Ideas para Rite") and any("Ideas" in c for c in afuera):
+        perdidas.append("titulo como frase omitida")
+    if "cable usb c" in nota and "cable" in p and "comprar usb" in p.lower():
+        perdidas.append("frase recortada")
     if perdidas:
         sug_ok = False
     return len(p) / len(nota), pct, tec, sug, sug_ok
@@ -71,7 +76,7 @@ def main():
             continue
         for _ in range(a.repeticiones):
             t = time.time()
-            r = m.armar_prompt(nota)
+            r = m.armar_prompt(nota, "", fidelidad.detectar_titulo(nota))
             seg = time.time() - t
             ratio, pct, tec, sug, sug_ok = evaluar(nota, r)
             mal = ratio > 1.0 or pct < 100 or tec or not sug_ok

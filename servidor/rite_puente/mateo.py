@@ -45,12 +45,12 @@ class Mateo:
             original, lambda msgs, ops: self._llamar(msgs, self.modelo, ops), self.modelo, SISTEMA_ORGANIZAR, pista
         )
 
-    def armar_prompt(self, texto: str, pista: str = "") -> dict:
+    def armar_prompt(self, texto: str, pista: str = "", titulo: str = "") -> dict:
         """Prompt compacto para Claude Code (ver armador.py). No se envia a ningun lado."""
         original = self._validar(texto)
         modelo = self.modelo_prompt or self.modelo
         return armador.armar(
-            original, lambda msgs, ops: self._llamar(msgs, modelo, ops), modelo, pista, sugerir=lambda t: self._sugerir(t, modelo)
+            original, lambda msgs, ops: self._llamar(msgs, modelo, ops), modelo, pista, sugerir=lambda t: self._sugerir(t, modelo), titulo=titulo
         )
 
     def _sugerir(self, texto: str, modelo: str) -> str:

@@ -36,7 +36,7 @@ class MateoFalso:
 
     salida_prompt = "Objetivo: x"
 
-    def armar_prompt(self, texto, pista=""):
+    def armar_prompt(self, texto, pista="", titulo=""):
         if texto == "falla":
             raise MateoError("Mateo no responde")
         return {"prompt": self.salida_prompt, "modelo": self.modelo, "caracteres_antes": len(texto.strip()), "caracteres_despues": len(self.salida_prompt), "advertencias": [], "intentos": 1, "resumen_iteracion": "r", "preguntas_del_original": [], "preguntas_sugeridas": ["¿Y si falla?"], "pista": pista}
@@ -292,6 +292,31 @@ class OmitidasTest(unittest.TestCase):
     def test_si_esta_todo_no_hay_nada_afuera(self):
         m = mateo_guionado("Objetivo: Mateo resume cada 10 mensajes.\n- pasar notas a Claude\n- comprar cable usb c\n- llamar mecanico jueves")
         self.assertEqual(m.armar_prompt(self.CABLE)["dejado_afuera"], [])
+
+    def test_el_titulo_no_cuenta_como_frase_dejada_afuera(self):
+        texto = "Ideas para Rite" + chr(10) * 2 + self.CABLE
+        cuerpo = "Objetivo: Mateo resume cada 10 mensajes.\n- pasar notas a Claude\n- comprar cable usb c\n- llamar mecanico jueves"
+        self.assertEqual(mateo_guionado(cuerpo).armar_prompt(texto)["dejado_afuera"], [])  # titulo detectado solo
+        self.assertEqual(mateo_guionado(cuerpo).armar_prompt(texto, "", "Ideas para Rite")["dejado_afuera"], [])
+        self.assertEqual(fidelidad.detectar_titulo(texto), "Ideas para Rite")
+        self.assertEqual(fidelidad.detectar_titulo("Una sola linea."), "")
+
+    def test_palabra_perdida_dentro_de_una_frase_se_restaura_tal_cual(self):
+        recortado = "Objetivo: Mateo resume cada 10 mensajes.\n- pasar notas a Claude\n- comprar usb c\n- llamar mecanico jueves"
+        m = mateo_guionado(recortado)
+        r = m.armar_prompt(self.CABLE)
+        self.assertIn("comprar cable usb c", r["prompt"])
+        self.assertNotIn("comprar usb c", r["prompt"])
+        self.assertIn("Conserva la frase tal cual", m.pedidos[1][0][-1]["content"])  # primero se reintenta
+        self.assertEqual(fidelidad.recortadas(self.CABLE, r["prompt"]), [])
+
+    def test_restaurar_reemplaza_la_frase_parecida(self):
+        p = "Mateo resume cada 10 mensajes. Pasar notas a Claude. Comprar usb c. Llamar mecanico jueves."
+        self.assertEqual(
+            fidelidad.restaurar(p, "comprar cable usb c"),
+            "Mateo resume cada 10 mensajes. Pasar notas a Claude. comprar cable usb c. Llamar mecanico jueves.",
+        )
+        self.assertTrue(fidelidad.restaurar("Objetivo: otra cosa", "comprar cable usb c").endswith("comprar cable usb c"))
 
     def test_nota_corta_no_genera_preguntas(self):
         m = mateo_guionado("Objetivo: x")

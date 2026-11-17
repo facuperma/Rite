@@ -79,13 +79,14 @@ def _ensamblar(cuerpo: str, falta: list[str], original: str, dudas: list[str]) -
     return "\n".join(partes)
 
 
-def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = CANDIDATOS, sugerir=None) -> dict:
+def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = CANDIDATOS, sugerir=None, titulo: str = "") -> dict:
     """Genera hasta k candidatos, los puntua, refina con feedback y devuelve solo el mejor.
 
     `llamar(mensajes, opciones) -> str` habla con el modelo; `sugerir(texto) -> list[str]` (opcional) arma las preguntas
     sugeridas, que quedan FUERA del prompt y del conteo de largo.
     """
     original = original.strip()
+    titulo = titulo.strip() or fidelidad.detectar_titulo(original)
     sin_dudas, dudas = fidelidad.separar_dudas(original)
     base = fidelidad.compactar(sin_dudas) if sin_dudas.strip() else ""
     ratio = RATIO_CORTAS if len(original) < UMBRAL_CORTA else RATIO_OBJETIVO
@@ -115,7 +116,7 @@ def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = 
             ]
             opciones = {"temperature": 0.1 if i == 0 else 0.0, "num_predict": int(tope / 2.2) + 40}
             c = _limpiar(llamar(mensajes, opciones))
-            p = puntuacion.puntuar(original, c, limite_cuerpo, literales_de=base)
+            p = puntuacion.puntuar(original, c, limite_cuerpo, literales_de=base, titulo=titulo)
             todos.append((c, p))
             if p.pasa:
                 break
@@ -125,6 +126,8 @@ def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = 
         resumen_it = puntuacion.resumen(idx, len(todos), mejor)
         if mejor.inventadas:  # las que sobreviven: se sacan las lineas que las contienen
             cuerpo = "\n".join(l for l in cuerpo.splitlines() if not any(x in l for x in mejor.inventadas))
+        for frase in fidelidad.recortadas(base, cuerpo, excluir=[titulo]):  # una palabra perdida dentro de una frase: se restaura tal cual
+            cuerpo = fidelidad.restaurar(cuerpo, frase)
         falta = fidelidad.faltantes(base, cuerpo)
 
     final = _ensamblar(cuerpo, falta, original, dudas)
@@ -140,7 +143,7 @@ def armar(original: str, llamar: Llamar, modelo: str, pista: str = "", k: int = 
             sugeridas = limpiar_preguntas(sugerir(original), dudas, original) if len(original) >= MIN_PARA_PREGUNTAS else []
         except Exception:  # las sugerencias son un extra: si fallan, el prompt sale igual
             sugeridas = []
-    afuera = [] if final == compactado else fidelidad.omitidas(original, final)
+    afuera = [] if final == compactado else fidelidad.omitidas(original, final, excluir=[titulo])
     if afuera:
         resumen_it = (resumen_it + " " if resumen_it else "") + f"Dejé afuera {len(afuera)} frase{'s' if len(afuera) != 1 else ''} (podés volver a agregarlas)."
     return {
