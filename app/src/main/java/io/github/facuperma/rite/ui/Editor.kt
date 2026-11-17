@@ -171,10 +171,12 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
     BackHandler { salir() }
 
     val actual = nota
-    val fondo = colorNota(actual?.color ?: 0)
+    val oscuro = LocalOscuro.current
+    val fondo = colorNota(actual?.color ?: 0, oscuro)
 
     Scaffold(
         containerColor = fondo,
+        contentColor = textoNota(oscuro),
         topBar = {
             TopAppBar(
                 title = {},
@@ -231,11 +233,11 @@ fun PantallaEditor(vm: RiteViewModel, id: Long) {
                     TextButton(onClick = { cuerpo = alternarCasilla(cuerpo) }) { Text("☐ Lista") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    PaletaNotas.forEachIndexed { i, c ->
+                    paletaNotas(oscuro).forEachIndexed { i, c ->
                         Box(
                             Modifier.padding(end = 10.dp).size(28.dp)
                                 .background(c, CircleShape)
-                                .border(if ((actual?.color ?: 0) == i) 3.dp else 1.dp, if ((actual?.color ?: 0) == i) Color(0xFF444444) else Color(0x44000000), CircleShape)
+                                .border(if ((actual?.color ?: 0) == i) 3.dp else 1.dp, if ((actual?.color ?: 0) == i) (if (oscuro) Color(0xFFECEDEF) else Color(0xFF444444)) else (if (oscuro) Color(0xFF5A5E68) else Color(0x44000000)), CircleShape)
                                 .clickable {
                                     vm.pintar(id, i)
                                     nota = actual?.copy(color = i)

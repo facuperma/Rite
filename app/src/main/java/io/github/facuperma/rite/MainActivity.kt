@@ -6,10 +6,17 @@ import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.SystemBarStyle
+import io.github.facuperma.rite.ui.EsquemaClaro
+import io.github.facuperma.rite.ui.EsquemaOscuro
+import io.github.facuperma.rite.ui.LocalOscuro
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.facuperma.rite.ui.PantallaAjustes
 import io.github.facuperma.rite.ui.PantallaCharla
@@ -30,8 +37,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF3B5BDB), surface = Color(0xFFFAFAFC), background = Color(0xFFFAFAFC))) {
-                val vm: RiteViewModel = viewModel()
+            val vm: RiteViewModel = viewModel()
+            val modo by vm.modoTema.collectAsState()
+            val oscuro = modo.esOscuro(isSystemInDarkTheme())
+            // Barras de estado y navegacion: iconos claros sobre fondo oscuro, y al reves.
+            DisposableEffect(oscuro) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (oscuro) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+                    navigationBarStyle = if (oscuro) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+                )
+                // el fondo de la ventana acompaña al tema (si no, se ve un destello claro al abrir el teclado o al girar)
+                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable((if (oscuro) EsquemaOscuro else EsquemaClaro).background.toArgb()))
+                onDispose { }
+            }
+            MaterialTheme(colorScheme = if (oscuro) EsquemaOscuro else EsquemaClaro) {
+              CompositionLocalProvider(LocalOscuro provides oscuro) {
+                Surface(color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
                 val editando by vm.editando.collectAsState()
                 val ajustes by vm.ajustesAbiertos.collectAsState()
                 val charla by vm.charlaAbierta.collectAsState()
@@ -42,6 +65,8 @@ class MainActivity : ComponentActivity() {
                     charla -> PantallaCharla(vm)
                     else -> PantallaLista(vm)
                 }
+                }
+              }
             }
         }
     }

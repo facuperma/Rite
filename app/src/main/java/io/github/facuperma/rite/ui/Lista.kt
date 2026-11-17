@@ -63,12 +63,7 @@ import io.github.facuperma.rite.datos.Nota
 import kotlinx.coroutines.launch
 
 /** Paleta de notas. El indice 0 es "sin color". */
-val PaletaNotas = listOf(
-    Color(0xFFFFFFFF), Color(0xFFFFF3B0), Color(0xFFFFD6D6), Color(0xFFD6F5D6),
-    Color(0xFFD6E8FF), Color(0xFFEBD9FF),
-)
 
-fun colorNota(i: Int): Color = PaletaNotas.getOrElse(i) { PaletaNotas[0] }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -273,11 +268,12 @@ private fun TarjetaNota(
     onRestaurar: () -> Unit,
     onEliminar: () -> Unit,
 ) {
+    val oscuro = LocalOscuro.current
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = colorNota(n.color), contentColor = Color(0xFF1B1B1B)),
-        border = BorderStroke(1.dp, Color(0x22000000)),
+        colors = CardDefaults.cardColors(containerColor = colorNota(n.color, oscuro), contentColor = textoNota(oscuro)),
+        border = BorderStroke(1.dp, bordeNota(oscuro)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {

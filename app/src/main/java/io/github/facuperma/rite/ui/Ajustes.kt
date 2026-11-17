@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,18 @@ fun PantallaAjustes(vm: RiteViewModel) {
         },
     ) { margen ->
         Column(Modifier.fillMaxSize().padding(margen).padding(16.dp).verticalScroll(rememberScrollState())) {
+            val modo by vm.modoTema.collectAsState()
+            Text("Apariencia", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.padding(top = 8.dp, bottom = 20.dp)) {
+                ModoTema.entries.forEach { m ->
+                    FilterChip(
+                        selected = modo == m,
+                        onClick = { vm.elegirTema(m) },
+                        label = { Text(m.titulo) },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+            }
             Text("PC vinculada", style = MaterialTheme.typography.titleMedium)
             val v = vinculo
             if (v?.token != null) {

@@ -79,6 +79,15 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
     private val almacen = Almacen(app)
     val vinculo = MutableStateFlow(almacen.leer())
     val ajustesAbiertos = MutableStateFlow(false)
+
+    // ---- Apariencia (preferencia local del aparato: no se sincroniza) ----
+    private val preferenciasTema = PreferenciasTema(app)
+    val modoTema = MutableStateFlow(preferenciasTema.leer())
+
+    fun elegirTema(m: ModoTema) {
+        preferenciasTema.guardar(m)
+        modoTema.value = m
+    }
     val charlaAbierta = MutableStateFlow(false)
 
     // ---- Sincronizacion ----
