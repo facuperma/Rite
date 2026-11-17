@@ -1,0 +1,46 @@
+Rite
+Copyright (c) 2026 Facundo Gabriel Peralta Marello (GitHub: facuperma / Faierwall)
+Todos los derechos reservados.
+
+Este software (el código fuente de la app de Android, el servidor puente, los
+instaladores y paquetes, el logo y la documentación) es una obra protegida por
+la Ley 11.723 de Propiedad Intelectual de la República Argentina y por los
+tratados internacionales de derecho de autor.
+
+El código se publica en GitHub solo para que pueda leerse. Publicarlo no otorga
+ninguna licencia de uso.
+
+Sin autorización previa y por escrito del titular NO está permitido:
+  - copiar o reproducir el código, total o parcialmente;
+  - modificarlo o crear obras derivadas;
+  - distribuirlo, publicarlo en otro sitio, sublicenciarlo o venderlo;
+  - usarlo, o usar cualquier parte de él, con fines comerciales;
+  - quitar o cambiar este aviso.
+
+Está permitido descargar las versiones oficiales publicadas por el titular
+(la .apk de Rite) e instalarlas para uso personal y no comercial.
+
+Los componentes de terceros que se incluyen o se usan conservan sus propias
+licencias, entre ellos las bibliotecas de Android y Jetpack (Compose, Room y
+otras, Apache-2.0) y Kotlin (Apache-2.0).
+
+EL SOFTWARE SE ENTREGA "TAL CUAL", SIN GARANTÍAS DE NINGÚN TIPO. EL TITULAR NO
+SE RESPONSABILIZA POR DAÑOS DERIVADOS DE SU USO.
+
+Para pedir autorización: github.com/facuperma
+
+-------------------------------------------------------------------------------
+
+Rite
+Copyright (c) 2026 Facundo Gabriel Peralta Marello (GitHub: facuperma / Faierwall)
+All rights reserved.
+
+The source code is published on GitHub for viewing only. No license to use it
+is granted. Without the prior written permission of the copyright holder you may
+not copy, modify, create derivative works from, distribute, sublicense, sell or
+use this software, or any part of it, for commercial purposes, nor remove this
+notice. You may download the official releases published by the copyright
+holder and install them for personal, non-commercial use.
+
+Third-party components keep their own licenses. THE SOFTWARE IS PROVIDED "AS
+IS", WITHOUT WARRANTY OF ANY KIND.

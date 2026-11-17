@@ -37,3 +37,7 @@ Banco de pruebas con Ollama real: `python servidor/tests/banco_prompts.py --repe
 
 ## App
 `gradlew.bat assembleDebug` y `gradlew.bat testDebugUnitTest` (en esta PC con `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:/gtvtmp`). En la app: menu → Ajustes y PC vinculada → pegar el enlace.
+
+## Licencia
+
+Copyright (c) 2026 Facundo Gabriel Peralta Marello. **Todos los derechos reservados** (ver [LICENSE](LICENSE)). El código se publica solo para que pueda leerse: no se permite copiarlo, modificarlo, distribuirlo ni usarlo con fines comerciales sin autorización escrita. Las bibliotecas de terceros (Android/Jetpack, Kotlin) conservan sus propias licencias.
