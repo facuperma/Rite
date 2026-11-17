@@ -8,6 +8,9 @@ import urllib.request
 from . import armador
 
 LIMITE_TEXTO = 8000
+CONTEXTO_POR_DEFECTO = 8192  # qwen3:8b a 8192 anda a ~70 tok/s, 100 % en la GPU de 8 GB; no subir con qwen3 en esa GPU
+CONTEXTO_MINIMO = 2048
+CONTEXTO_MAXIMO = 32768
 
 SISTEMA_ORGANIZAR = (
     "Sos Mateo, el asistente de notas de Facundo. Te paso una nota suya. Reorganizala para que sea mas clara: "
@@ -18,18 +21,33 @@ SISTEMA_ORGANIZAR = (
     "Mantene el idioma y el tono de la nota. Devolve solamente la nota reorganizada, sin explicaciones."
 )
 
+def _validar_contexto(n: int) -> int:
+    if not isinstance(n, int) or isinstance(n, bool) or not CONTEXTO_MINIMO <= n <= CONTEXTO_MAXIMO:
+        raise ValueError(f"El contexto tiene que ser un entero entre {CONTEXTO_MINIMO} y {CONTEXTO_MAXIMO} (recibido: {n!r})")
+    return n
+
+
 class MateoError(Exception):
     pass
 
 
 class Mateo:
     def __init__(
-        self, url: str = "http://127.0.0.1:11434", modelo: str = "qwen3:8b", timeout: float = 240, modelo_prompt: str | None = None
+        self,
+        url: str = "http://127.0.0.1:11434",
+        modelo: str = "qwen3:8b",
+        timeout: float = 240,
+        modelo_prompt: str | None = None,
+        contexto: int = CONTEXTO_POR_DEFECTO,
+        contexto_prompt: int | None = None,
     ):
         self.url = url.rstrip("/")
         self.modelo = modelo
         self.modelo_prompt = modelo_prompt or modelo
         self.timeout = timeout
+        # Ollama usa 4096 de contexto por defecto: una nota de 8000 caracteres + el prompt de sistema + la salida se truncaria sin avisar.
+        self.contexto = _validar_contexto(contexto)
+        self.contexto_prompt = _validar_contexto(contexto_prompt) if contexto_prompt else self.contexto
 
     def disponible(self) -> bool:
         try:
@@ -42,7 +60,7 @@ class Mateo:
         """Varios candidatos internos; devuelve solo el mejor: {texto, modelo, resumen_iteracion}."""
         original = self._validar(texto)
         return armador.organizar(
-            original, lambda msgs, ops: self._llamar(msgs, self.modelo, ops), self.modelo, SISTEMA_ORGANIZAR, pista
+            original, lambda msgs, ops: self._llamar(msgs, self.modelo, {"num_ctx": self.contexto, **ops}), self.modelo, SISTEMA_ORGANIZAR, pista
         )
 
     def armar_prompt(self, texto: str, pista: str = "", titulo: str = "") -> dict:
@@ -50,14 +68,19 @@ class Mateo:
         original = self._validar(texto)
         modelo = self.modelo_prompt or self.modelo
         return armador.armar(
-            original, lambda msgs, ops: self._llamar(msgs, modelo, ops), modelo, pista, sugerir=lambda t: self._sugerir(t, modelo), titulo=titulo
+            original,
+            lambda msgs, ops: self._llamar(msgs, modelo, {"num_ctx": self.contexto_prompt, **ops}),
+            modelo,
+            pista,
+            sugerir=lambda t: self._sugerir(t, modelo),
+            titulo=titulo,
         )
 
     def _sugerir(self, texto: str, modelo: str) -> str:
         return self._llamar(
             [{"role": "system", "content": armador.SISTEMA_PREGUNTAS}, {"role": "user", "content": texto}],
             modelo,
-            {"temperature": 0.4, "num_predict": 120},
+            {"temperature": 0.4, "num_predict": 120, "num_ctx": self.contexto_prompt},
         )
 
     @staticmethod
@@ -82,7 +105,7 @@ class Mateo:
             "model": modelo,
             "stream": False,
             "think": False,
-            "options": {"temperature": 0.2, **opciones},
+            "options": {"temperature": 0.2, "num_ctx": self.contexto, **opciones},
             "messages": mensajes,
         }
         pedido = urllib.request.Request(
