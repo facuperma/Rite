@@ -532,6 +532,7 @@ class MateoRealTest(unittest.TestCase):
             self.assertEqual(m.organizar("  hola  ")["texto"], "Nota limpia")
             self.assertEqual(visto["cuerpo"]["model"], "qwen3:8b")
             self.assertFalse(visto["cuerpo"]["stream"])
+            self.assertEqual(visto["cuerpo"]["options"]["num_ctx"], 8192)  # Ollama usaria 4096 si no se pide
             self.assertEqual(visto["cuerpo"]["messages"][1]["content"], "hola")
             with self.assertRaises(MateoError):
                 m.organizar("   ")
@@ -540,6 +541,78 @@ class MateoRealTest(unittest.TestCase):
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+class ContextoTest(unittest.TestCase):
+    """num_ctx viaja en cada pedido a Ollama (por defecto 8192) y es configurable, tambien para el modelo de prompts."""
+
+    def _ollama_falso(self, cuerpos):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import threading
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                c = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                cuerpos.append(c)
+                out = json.dumps({"message": {"content": "Objetivo: algo con `x_y` y 500"}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+
+    def test_por_defecto_8192_en_organizar_y_en_prompt(self):
+        cuerpos = []
+        srv = self._ollama_falso(cuerpos)
+        try:
+            m = Mateo(f"http://127.0.0.1:{srv.server_port}", "qwen3:8b")
+            self.assertEqual(m.contexto, 8192)
+            m.organizar("anotar algo largo sobre `x_y` y 500 cosas para ver si el contexto viaja")
+            m.armar_prompt("Quiero que el boton use `x_y` y 500 filas, con bastante texto de relleno para que el prompt tenga que comprimir algo")
+            self.assertTrue(cuerpos)
+            for c in cuerpos:
+                self.assertEqual(c["options"]["num_ctx"], 8192)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_contexto_configurable_y_aparte_para_el_modelo_de_prompts(self):
+        cuerpos = []
+        srv = self._ollama_falso(cuerpos)
+        try:
+            m = Mateo(f"http://127.0.0.1:{srv.server_port}", "qwen3:8b", modelo_prompt="coder:7b", contexto=6144, contexto_prompt=16000)
+            m.organizar("anotar algo largo sobre `x_y` y 500 cosas para ver si el contexto viaja")
+            self.assertEqual({c["options"]["num_ctx"] for c in cuerpos if c["model"] == "qwen3:8b"}, {6144})
+            cuerpos.clear()
+            m.armar_prompt("Quiero que el boton use `x_y` y 500 filas, con bastante texto de relleno para que el prompt tenga que comprimir algo")
+            self.assertTrue(cuerpos)
+            self.assertEqual({c["model"] for c in cuerpos}, {"coder:7b"})
+            self.assertEqual({c["options"]["num_ctx"] for c in cuerpos}, {16000})  # candidatos y preguntas sugeridas
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_el_contexto_del_prompt_hereda_el_general_si_no_se_indica(self):
+        self.assertEqual(Mateo(contexto=4096).contexto_prompt, 4096)
+
+    def test_contexto_invalido_se_rechaza(self):
+        for malo in (0, 100, 2047, 32769, -1, 8192.5, True, "8192"):
+            with self.assertRaises(ValueError, msg=repr(malo)):
+                Mateo(contexto=malo)
+        with self.assertRaises(ValueError):
+            Mateo(contexto_prompt=99999)
+
+    def test_la_linea_de_comandos_acepta_y_valida_el_contexto(self):
+        from rite_puente import __main__ as cli
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:  # Windows no deja borrar la base abierta
+            self.assertEqual(cli.main(["--datos", t, "servir", "--contexto", "100"]), 2)
 
 
 if __name__ == "__main__":

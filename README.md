@@ -33,7 +33,7 @@ Módulos puros (solo biblioteca estándar, sin HTTP ni la app; se pueden copiar 
 - `rite_puente/fidelidad.py`: `literales(texto)`, `faltantes(original, prompt)`, `invenciones(original, prompt)`, `separar_dudas(texto)`, `compactar(texto)`.
 - `rite_puente/puntuacion.py`: `puntuar(original, candidato, limite)` → `Puntaje` (`pasa`, `pistas()`), `elegir(puntajes)`, `resumen(...)`.
 - `rite_puente/armador.py`: `armar(original, llamar, modelo, pista, k, sugerir)` y `organizar(...)`; reciben `llamar(mensajes, opciones) -> str`, así que sirven con cualquier modelo.
-Banco de pruebas con Ollama real: `python servidor/tests/banco_prompts.py --repeticiones 3 [--modelo qwen3:14b] [--ver]`. Tests: `python -m unittest discover -s servidor/tests`. Modelo del prompt: `servir --modelo-prompt MODELO`.
+Banco de pruebas con Ollama real: `python servidor/tests/banco_prompts.py --repeticiones 3 [--modelo qwen3:14b] [--ver]`. Tests: `python -m unittest discover -s servidor/tests`. Modelo del prompt: `servir --modelo-prompt MODELO`. Contexto de Ollama: `servir --contexto 8192` (por defecto; Ollama usa 4096 si no se pide y una nota de 8000 caracteres se truncaria) y `--contexto-prompt N` para el modelo de prompts (p. ej. 16000 con un modelo de código).
 
 ## App
 `gradlew.bat assembleDebug` y `gradlew.bat testDebugUnitTest` (en esta PC con `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=C:/gtvtmp`). En la app: menu → Ajustes y PC vinculada → pegar el enlace.

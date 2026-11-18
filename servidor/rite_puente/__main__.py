@@ -35,6 +35,8 @@ def main(argv=None) -> int:
     s.add_argument("--direccion", help="IP que se escribe en el enlace de vinculacion (por defecto la de la LAN)")
     s.add_argument("--modelo", default="qwen3:8b")
     s.add_argument("--modelo-prompt", default=None, help="modelo para 'Prompt para Claude' (por defecto el mismo que --modelo)")
+    s.add_argument("--contexto", type=int, default=8192, help="num_ctx que se le pide a Ollama (por defecto 8192; Ollama usa 4096 si no se indica)")
+    s.add_argument("--contexto-prompt", type=int, default=None, help="num_ctx para el modelo de --modelo-prompt (por defecto el mismo que --contexto; 16000 si es un modelo de codigo)")
     s.add_argument("--ollama", default="http://127.0.0.1:11434")
     s.add_argument("--sin-codigo", action="store_true", help="no genera ni imprime codigo de vinculacion (para arranque automatico)")
 
@@ -90,7 +92,12 @@ def main(argv=None) -> int:
         print(_enlace(direccion, a.puerto, vinculos.nuevo_codigo(), huella))
         return 0
 
-    puente = Puente((a.escuchar, a.puerto), vinculos, Mateo(a.ollama, a.modelo, modelo_prompt=a.modelo_prompt), Proyectos(datos), cert, clave)
+    try:
+        mateo = Mateo(a.ollama, a.modelo, modelo_prompt=a.modelo_prompt, contexto=a.contexto, contexto_prompt=a.contexto_prompt)
+    except ValueError as e:
+        print("Error:", e)
+        return 2
+    puente = Puente((a.escuchar, a.puerto), vinculos, mateo, Proyectos(datos), cert, clave)
     print(f"Puente de Rite escuchando en {a.escuchar}:{puente.puerto} (HTTPS). Huella: {huella}")
     if not a.sin_codigo:
         print("Para vincular un celular, pega este enlace en la app (vale 10 minutos, un solo uso):")
