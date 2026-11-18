@@ -125,6 +125,21 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Charla con Mateo (B.O.B.) ----
     val charla = MutableStateFlow<List<MensajeCharla>>(emptyList())
+    val chatsDisponibles = MutableStateFlow<List<io.github.facuperma.rite.red.ChatDisponible>>(emptyList())
+    /** null = Mateo por la ruta de siempre (puente viejo o servidor sin lista de chats). */
+    val chatElegido = MutableStateFlow<Long?>(null)
+
+    /** Pide a B.O.B. la lista de chats/modelos. Con el puente viejo queda vacía y se charla solo con Mateo. */
+    suspend fun cargarChats() {
+        val v = vinculo.value?.takeIf { it.token != null } ?: return
+        val lista = runCatching { Cliente(v).chats() }.getOrDefault(emptyList())
+        chatsDisponibles.value = lista
+        if (chatElegido.value == null || lista.none { it.id == chatElegido.value }) chatElegido.value = lista.firstOrNull()?.id
+    }
+
+    fun elegirChat(id: Long) {
+        if (chatElegido.value != id) { chatElegido.value = id; charla.value = emptyList() }
+    }
     val charlando = MutableStateFlow(false)
 
     /** Manda un mensaje a Mateo. La respuesta se muestra pero NO se guarda sola: el usuario decide si la copia o la guarda como nota. */
@@ -135,7 +150,9 @@ class RiteViewModel(app: Application) : AndroidViewModel(app) {
         charla.value = charla.value + MensajeCharla(false, limpio)
         charlando.value = true
         return try {
-            val r = Cliente(v).charlar(limpio)
+            val elegido = chatElegido.value
+            val cliente = Cliente(v)
+            val r = if (elegido != null) cliente.charlarEnChat(elegido, limpio) else cliente.charlar(limpio)
             charla.value = charla.value + MensajeCharla(true, r.texto, r.modelo)
             null
         } catch (e: ErrorPuente) {

@@ -60,6 +60,9 @@ fun PantallaCharla(vm: RiteViewModel) {
     var error by remember { mutableStateOf<String?>(null) }
     var guardada by remember { mutableStateOf<String?>(null) }
     BackHandler { vm.charlaAbierta.value = false }
+    val chats by vm.chatsDisponibles.collectAsState()
+    val elegido by vm.chatElegido.collectAsState()
+    LaunchedEffect(Unit) { vm.cargarChats() }
 
     LaunchedEffect(mensajes.size, pensando) {
         if (mensajes.isNotEmpty()) lista.animateScrollToItem(mensajes.size)
@@ -68,7 +71,7 @@ fun PantallaCharla(vm: RiteViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mateo") },
+                title = { Text(chats.firstOrNull { it.id == elegido }?.titulo ?: "Mateo") },
                 navigationIcon = { IconButton(onClick = { vm.charlaAbierta.value = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver") } },
                 actions = {
                     if (mensajes.isNotEmpty()) TextButton(onClick = { vm.limpiarCharla() }) { Text("Limpiar") }
@@ -82,7 +85,7 @@ fun PantallaCharla(vm: RiteViewModel) {
                     OutlinedTextField(
                         value = texto,
                         onValueChange = { texto = it },
-                        placeholder = { Text("Escribile a Mateo") },
+                        placeholder = { Text("Escribile a ${chats.firstOrNull { it.id == elegido }?.titulo ?: "Mateo"}") },
                         modifier = Modifier.weight(1f),
                         maxLines = 4,
                     )
@@ -101,8 +104,29 @@ fun PantallaCharla(vm: RiteViewModel) {
         },
     ) { margen ->
         Column(Modifier.fillMaxSize().padding(margen)) {
+            if (chats.size > 1) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(chats.size) { i ->
+                        val c = chats[i]
+                        androidx.compose.material3.FilterChip(
+                            selected = c.id == elegido,
+                            onClick = { vm.elegirChat(c.id) },
+                            label = { Text(c.titulo) },
+                        )
+                    }
+                }
+                Text(
+                    chats.firstOrNull { it.id == elegido }?.modelo.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            }
             Text(
-                "La charla queda en el chat de Mateo en la PC. Acá nada se guarda solo: copiá o guardá como nota lo que te sirva.",
+                "La charla queda en el chat elegido en la PC. Acá nada se guarda solo: copiá o guardá como nota lo que te sirva.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -133,7 +157,7 @@ fun PantallaCharla(vm: RiteViewModel) {
                             CircularProgressIndicator(Modifier.size(24.dp))
                             Text("  Mateo está pensando… (la primera vez puede tardar un minuto)")
                         }
-                    } else if (mensajes.isNotEmpty()) {
+                    } else if (mensajes.isNotEmpty() && (chats.isEmpty() || chats.firstOrNull()?.id == elegido)) {
                         TextButton(onClick = { error = null; alcance.launch { error = vm.repasarConArturo() } }) { Text("No me convence: que lo repase Arturo") }
                     }
                     guardada?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }

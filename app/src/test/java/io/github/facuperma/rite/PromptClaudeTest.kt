@@ -99,4 +99,14 @@ class PromptClaudeTest {
         assertFalse(esVersionPrompt("{}"))
         assertFalse(esVersionPrompt("no es json"))
     }
+
+    @Test
+    fun parsea_la_lista_de_chats_para_charlar() {
+        val r = io.github.facuperma.rite.red.parsearChats(
+            JSONObject("""{"chats":[{"id":6,"titulo":"Mateo","modelo":"qwen3:8b"},{"id":8,"titulo":"Gemma 4 E4B Heretic","modelo":"hf.co/x:Q4"}]}"""),
+        )
+        assertEquals(listOf(6L, 8L), r.map { it.id })
+        assertEquals("Gemma 4 E4B Heretic", r[1].titulo)
+        assertTrue(io.github.facuperma.rite.red.parsearChats(JSONObject("{}")).isEmpty())
+    }
 }

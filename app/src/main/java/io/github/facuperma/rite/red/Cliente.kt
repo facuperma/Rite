@@ -40,6 +40,14 @@ interface ServidorSync {
 
 data class RespuestaCharla(val texto: String, val modelo: String)
 
+/** Un chat fijado de B.O.B. con el que se puede charlar desde el celular (cada uno con su modelo). */
+data class ChatDisponible(val id: Long, val titulo: String, val modelo: String)
+
+fun parsearChats(o: JSONObject): List<ChatDisponible> {
+    val a = o.optJSONArray("chats") ?: return emptyList()
+    return (0 until a.length()).map { a.getJSONObject(it) }.map { ChatDisponible(it.getLong("id"), it.optString("titulo"), it.optString("modelo")) }
+}
+
 fun huellaSha256(der: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(der).joinToString("") { "%02x".format(it) }
 
@@ -116,6 +124,15 @@ class Cliente(private val v: Vinculo) : ServidorSync {
     /** Charla con Mateo (B.O.B.): la respuesta no se guarda en la app; queda en el chat de Mateo en la PC. */
     suspend fun charlar(texto: String): RespuestaCharla {
         val o = llamar("/mateo/charlar", JSONObject().put("texto", texto), v.token)
+        return RespuestaCharla(o.getString("texto"), o.optString("modelo"))
+    }
+
+    /** Chats fijados de B.O.B. para charlar (404 si el servidor es el puente viejo). */
+    suspend fun chats(): List<ChatDisponible> = parsearChats(llamar("/chats", null, v.token))
+
+    /** Charla con el chat elegido: usa el modelo de ese chat y la respuesta no se guarda sola en ninguna nota. */
+    suspend fun charlarEnChat(chatId: Long, texto: String): RespuestaCharla {
+        val o = llamar("/chats/charlar", JSONObject().put("chat_id", chatId).put("texto", texto), v.token)
         return RespuestaCharla(o.getString("texto"), o.optString("modelo"))
     }
 
